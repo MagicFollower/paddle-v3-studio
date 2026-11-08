@@ -238,9 +238,9 @@
           <el-tab-pane :label="`错误明细清单 (${errorEntries.length})`" name="errors">
             <el-scrollbar height="100%">
               <el-table :data="errorEntries" size="small" border>
-                <el-table-column prop="name" label="品名" min-width="100" show-overflow-tooltip />
+                <el-table-column prop="name" label="品名" width="110" show-overflow-tooltip />
                 <el-table-column prop="page" label="页" width="50" align="center" />
-                <el-table-column label="错误字段" min-width="150">
+                <el-table-column label="错误字段" width="180" show-overflow-tooltip>
                   <template #default="{ row }"><span class="err-detail">{{ errDetail(row) }}</span></template>
                 </el-table-column>
                 <el-table-column label="初审" width="70">
@@ -249,7 +249,7 @@
                 <el-table-column label="审核" width="70">
                   <template #default="{ row }">{{ row.review?.reviewer || '—' }}</template>
                 </el-table-column>
-                <el-table-column label="操作" width="170" align="center">
+                <el-table-column label="操作" :width="opColWidth" align="center">
                   <template #default="{ row }">
                     <el-button link type="primary" size="small" @click="jumpToEntry(row)">跳转</el-button>
                     <el-button link type="warning" size="small" :disabled="firstBtnDisabled(row)" @click="onFirstClick(row)">{{ firstBtnLabel(row) }}</el-button>
@@ -334,6 +334,8 @@ function startDrag(e) {
   window.addEventListener('mousemove', move)
   window.addEventListener('mouseup', up)
 }
+// 错误清单最后一列(操作)宽度 = 右栏宽 - 内边距/边框 - 其余固定列(480)，随拖拽自适应；下限 170
+const opColWidth = computed(() => Math.max(170, rightWidth.value - 22 - 480))
 
 const extracted = computed(() => payload.value?.extracted)
 const report = computed(() => payload.value?.report)
