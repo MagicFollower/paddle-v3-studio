@@ -67,7 +67,7 @@
         </div>
       </div>
 
-      <div class="split" v-if="payload">
+      <div class="split" v-if="payload" ref="splitRef">
         <div class="left">
           <div class="page-tabs">
             <el-radio-group v-model="pageNo" size="small">
@@ -86,7 +86,8 @@
             @select="id => selected = id" />
         </div>
 
-        <div class="right panel">
+        <div class="splitter" title="拖动调整右栏宽度" @mousedown="startDrag"></div>
+        <div class="right panel" :style="{ width: rightWidth + 'px' }">
           <el-tabs v-model="rtab" class="rtabs">
           <el-tab-pane label="校验详情" name="detail">
           <el-scrollbar height="100%">
@@ -234,6 +235,31 @@
               <el-empty v-if="!normalizedEntries.length" description="暂无明细（未解析或无表格）" :image-size="50" />
             </el-scrollbar>
           </el-tab-pane>
+          <el-tab-pane :label="`错误明细清单 (${errorEntries.length})`" name="errors">
+            <el-scrollbar height="100%">
+              <el-table :data="errorEntries" size="small" border>
+                <el-table-column prop="name" label="品名" min-width="100" show-overflow-tooltip />
+                <el-table-column prop="page" label="页" width="50" align="center" />
+                <el-table-column label="错误字段" min-width="150">
+                  <template #default="{ row }"><span class="err-detail">{{ errDetail(row) }}</span></template>
+                </el-table-column>
+                <el-table-column label="初审" width="70">
+                  <template #default="{ row }">{{ row.review?.firstReviewer || '—' }}</template>
+                </el-table-column>
+                <el-table-column label="审核" width="70">
+                  <template #default="{ row }">{{ row.review?.reviewer || '—' }}</template>
+                </el-table-column>
+                <el-table-column label="操作" width="140" align="center">
+                  <template #default="{ row }">
+                    <el-button link type="primary" size="small" @click="jumpToEntry(row)">跳转</el-button>
+                    <el-button link type="warning" size="small" @click="openReview(row, 'first')">初审</el-button>
+                    <el-button link type="success" size="small" :disabled="!hasFirstReview(row)" @click="openReview(row, 'final')">审核</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+              <el-empty v-if="!errorEntries.length" description="无错误明细（全部与数据源一致）" :image-size="50" />
+            </el-scrollbar>
+          </el-tab-pane>
           </el-tabs>
         </div>
       </div>
@@ -242,6 +268,23 @@
       <el-empty v-else-if="current.status === 'failed'" description="解析失败 · 点击右上角「解析」重试" class="panel empty" />
     </div>
     <el-empty v-else description="上传或选择一个合同条目" class="panel empty" />
+    <el-dialog v-model="reviewDialog" :title="reviewMode === 'first' ? '初审回填' : '审核回填'" width="420px">
+      <el-form label-width="90px">
+        <template v-if="reviewMode === 'first'">
+          <el-form-item label="初审核人"><el-input v-model="reviewForm.firstReviewer" placeholder="必填" /></el-form-item>
+          <el-form-item label="初审核时间"><el-input v-model="reviewForm.firstReviewTime" /></el-form-item>
+        </template>
+        <template v-else>
+          <el-form-item label="审核人"><el-input v-model="reviewForm.reviewer" placeholder="必填" /></el-form-item>
+          <el-form-item label="审核时间"><el-input v-model="reviewForm.reviewTime" /></el-form-item>
+        </template>
+        <el-form-item label="备注"><el-input v-model="reviewForm.remark" type="textarea" :rows="2" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="reviewDialog = false">取消</el-button>
+        <el-button type="primary" @click="confirmReview">确定</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -270,6 +313,25 @@ const selected = ref(null)
 const activeEntry = ref(null)
 const reviewData = ref(null)
 let poll = null
+
+// 右栏宽度拖拽调整（持久化到 localStorage）
+const splitRef = ref(null)
+const rightWidth = ref(Number(localStorage.getItem('ccRightWidth')) || 430)
+function startDrag(e) {
+  e.preventDefault()
+  const move = (ev) => {
+    const rect = splitRef.value?.getBoundingClientRect()
+    if (!rect) return
+    rightWidth.value = Math.max(320, Math.min(rect.width - 320, rect.right - ev.clientX))
+  }
+  const up = () => {
+    window.removeEventListener('mousemove', move)
+    window.removeEventListener('mouseup', up)
+    localStorage.setItem('ccRightWidth', String(Math.round(rightWidth.value)))
+  }
+  window.addEventListener('mousemove', move)
+  window.addEventListener('mouseup', up)
+}
 
 const extracted = computed(() => payload.value?.extracted)
 const report = computed(() => payload.value?.report)
@@ -476,6 +538,53 @@ function jumpToEntry(e) {
   activeEntry.value = { page: e.page, box, key: entryKey(e) }
 }
 
+// ===== 错误明细清单 + 初审/审核回填 =====
+const errorEntries = computed(() => normalizedEntries.value.filter(e => isRowBad(e)))
+function errDetail(e) {
+  const r = cmpByKey.value[entryKey(e)]
+  if (!r) return '未匹配'
+  const bad = r.fields.filter(f => !f.ok)
+  return bad.map(f => `${FIELD_LABEL[f.field] || f.field}: 源${f.source ?? '—'}/文件${f.ocr ?? '—'}`).join('；') || '未匹配数据源'
+}
+function hasFirstReview(e) {
+  return !!(e.review && (e.review.firstReviewer || e.review.firstReviewTime))
+}
+const reviewDialog = ref(false)
+const reviewMode = ref('first')
+const reviewTarget = ref(null)
+const reviewForm = ref({})
+function nowStr() {
+  const d = new Date(), p = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+function openReview(row, mode) {
+  reviewTarget.value = entryKey(row)
+  reviewMode.value = mode
+  reviewForm.value = mode === 'first'
+    ? { firstReviewer: row.review?.firstReviewer || '', firstReviewTime: row.review?.firstReviewTime || nowStr(), remark: row.review?.remark || '' }
+    : { reviewer: row.review?.reviewer || '', reviewTime: row.review?.reviewTime || nowStr(), remark: row.review?.remark || '' }
+  reviewDialog.value = true
+}
+async function saveReviewMarkers(key, fields) {
+  const base = JSON.parse(JSON.stringify(detailJson.value || { contractId: currentId.value, entries: [] }))
+  const target = (base.entries || []).find(e => entryKey(e) === key)
+  if (target) target.review = { ...(target.review || {}), ...fields }
+  await api.saveContractReview(currentId.value, base)
+  reviewData.value = base
+}
+async function confirmReview() {
+  const personKey = reviewMode.value === 'first' ? 'firstReviewer' : 'reviewer'
+  if (!reviewForm.value[personKey]) { ElMessage.warning(reviewMode.value === 'first' ? '请填写初审核人' : '请填写审核人'); return }
+  try {
+    await ElMessageBox.confirm(`确认将${reviewMode.value === 'first' ? '初审' : '审核'}标记回填到合同明细 Json？`, '二次确认', { type: 'warning' })
+  } catch { return }
+  try {
+    await saveReviewMarkers(reviewTarget.value, { ...reviewForm.value })
+    reviewDialog.value = false
+    ElMessage.success('已回填审核标记')
+  } catch (e) { ElMessage.error(e.message) }
+}
+
 function selectOcr(i) {
   selected.value = 'o' + i
   if (!display.show_ocr) display.show_ocr = true
@@ -537,6 +646,9 @@ watch(() => props.autoOpenId, async (id) => {
 .left { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .page-tabs { display: flex; gap: 10px; align-items: center; }
 .right { width: 430px; flex-shrink: 0; padding: 10px; }
+.splitter { width: 6px; flex-shrink: 0; cursor: col-resize; background: transparent; border-radius: 3px; }
+.splitter:hover, .splitter:active { background: var(--border); }
+.err-detail { color: var(--match-bad); font-size: 12px; }
 .rtabs { height: 100%; display: flex; flex-direction: column; }
 .rtabs :deep(.el-tabs__content) { flex: 1; min-height: 0; }
 .rtabs :deep(.el-tab-pane) { height: 100%; }
