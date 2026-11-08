@@ -133,7 +133,7 @@
               <div v-for="(t, ti) in extracted?.tables || []" :key="ti" class="table-block">
                 <div class="muted">第 {{ t.page }} 页表格 · {{ t.entries.length }} 条明细<span v-if="t.totalRow"> · {{ t.totalRow.text }}</span></div>
                 <el-table :data="t.entries" size="small" border max-height="260" highlight-current-row
-                  :row-class-name="() => 'entry-row'" @row-click="(row) => selectEntry(t, row)">
+                  :row-class-name="rawRowClass" :cell-class-name="cellClass" @row-click="(row) => selectEntry(t, row)">
                   <el-table-column prop="name" label="品名" min-width="110" show-overflow-tooltip />
                   <el-table-column prop="spec" label="规格" min-width="80" show-overflow-tooltip />
                   <el-table-column prop="qtyText" label="数量" width="70" />
@@ -159,7 +159,9 @@
               </div>
               <template v-if="report.itemComparison?.length">
                 <div class="sec-title" style="margin-top:10px">逐行对照（数据源 ↔ 文件）</div>
-                <div v-for="(r, i) in report.itemComparison" :key="i" class="cmp-card" :class="{ bad: !r.fields.every(f => f.ok) }">
+                <div v-for="(r, i) in report.itemComparison" :key="i" class="cmp-card"
+                  :class="{ bad: !r.fields.every(f => f.ok), clickable: !!r.ocr }"
+                  :title="r.ocr ? '点击跳转到页面中该条目' : ''" @click="r.ocr && jumpToEntry(r.ocr)">
                   <div class="cmp-head">
                     <b>{{ r.source?.itemName || r.ocr?.name || '（未知品名）' }}</b>
                     <el-tag :type="r.fields.every(f => f.ok) ? 'success' : 'danger'" size="small">
@@ -207,7 +209,8 @@
               <div class="sec-title">合同号（归一化）</div>
               <div class="mono no-text">{{ normalizedNo?.number || '—' }}</div>
               <div class="sec-title" style="margin-top:10px">明细（归一化：去空白/去逗号/去冗余0）</div>
-              <el-table :data="normalizedEntries" size="small" border max-height="340">
+              <el-table :data="normalizedEntries" size="small" border max-height="340" highlight-current-row
+                :cell-class-name="cellClass" :row-class-name="normRowClass" @row-click="(row) => jumpToEntry(row)">
                 <el-table-column prop="name" label="品名" min-width="110" show-overflow-tooltip />
                 <el-table-column prop="spec" label="规格" min-width="80" show-overflow-tooltip />
                 <el-table-column prop="unit" label="单位" width="60" />
@@ -429,6 +432,50 @@ function selectEntry(t, row) {
   activeEntry.value = { page: t.page, box: row.rowBoxNorm || estimateRowBox(t, idx), key: `${t.page}-${idx}` }
 }
 
+// ===== 校验错误红标 + 跳转 =====
+// itemComparison 按数据源顺序排列（非明细顺序），但每个匹配行带 row.ocr（原始条目，含 page/rowBoxNorm），
+// 故以「page+行坐标」为键把对照行映射回明细条目（归一化条目保留 rowBoxNorm，键不变）。
+const CMP_FIELD_BY_PROP = {
+  name: 'name', qtyText: 'quantity', qty: 'quantity',
+  priceText: 'unitPrice', price: 'unitPrice', amountText: 'amount', amount: 'amount',
+}
+function entryKey(e) {
+  return `${e.page}|${e.rowBoxNorm ? e.rowBoxNorm.join(',') : (e.no ?? e.name)}`
+}
+const cmpByKey = computed(() => {
+  const m = {}
+  for (const r of report.value?.itemComparison || []) if (r.ocr) m[entryKey(r.ocr)] = r
+  return m
+})
+function badFields(e) {
+  const r = cmpByKey.value[entryKey(e)]
+  return r ? r.fields.filter(f => !f.ok).map(f => f.field) : []
+}
+function isRowBad(e) {
+  const r = cmpByKey.value[entryKey(e)]
+  return !!r && (!r.matched || r.fields.some(f => !f.ok))
+}
+function cellClass({ row, column }) {
+  const f = CMP_FIELD_BY_PROP[column.property]
+  return f && badFields(row).includes(f) ? 'cell-bad' : ''
+}
+function rawRowClass({ row }) {
+  return 'entry-row' + (isRowBad(row) ? ' row-bad' : '')
+}
+function normRowClass({ row }) {
+  return isRowBad(row) ? 'row-bad' : ''
+}
+function jumpToEntry(e) {
+  if (!e || e.page == null) return
+  pageNo.value = e.page
+  let box = e.rowBoxNorm
+  if (!box) {
+    const t = (extracted.value?.tables || []).find(x => x.page === e.page)
+    if (t) box = estimateRowBox(t, t.entries.findIndex(x => entryKey(x) === entryKey(e)))
+  }
+  activeEntry.value = { page: e.page, box, key: entryKey(e) }
+}
+
 function selectOcr(i) {
   selected.value = 'o' + i
   if (!display.show_ocr) display.show_ocr = true
@@ -513,6 +560,10 @@ watch(() => props.autoOpenId, async (id) => {
 .help-line b { color: var(--brand); margin-right: 4px; }
 .cmp-card { border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-bottom: 6px; }
 .cmp-card.bad { border-color: var(--match-bad); background: #fef2f2; }
+.cmp-card.clickable { cursor: pointer; }
+.cmp-card.clickable:hover { border-color: var(--brand); }
+:deep(.cell-bad) { color: var(--match-bad) !important; font-weight: 600; background: #fef2f2 !important; }
+:deep(.row-bad td) { background: #fff5f5; }
 .cmp-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; font-size: 13px; }
 .cmp-field { display: flex; gap: 10px; font-size: 12px; padding: 2px 0; flex-wrap: wrap; }
 .cmp-field.bad { color: var(--low); }
