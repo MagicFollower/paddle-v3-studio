@@ -46,3 +46,7 @@ target/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# ===== 模拟数据备份（复测用，允许提交，含数据库文件）=====
+!mock-data/
+!mock-data/**
