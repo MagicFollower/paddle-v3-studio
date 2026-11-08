@@ -9,6 +9,12 @@
         <el-table-column v-for="col in columns" :key="col.key" :prop="col.key" :label="col.label"
           :width="col.width" :min-width="col.minWidth || 100" :align="col.align || 'left'"
           :fixed="col.fixed" :show-overflow-tooltip="col.showOverflowTooltip !== false">
+          <template #header>
+            <span>{{ col.label }}</span>
+            <el-tooltip v-if="col.headerTip" :content="col.headerTip" placement="top" effect="light">
+              <el-icon class="cg-header-tip"><QuestionFilled /></el-icon>
+            </el-tooltip>
+          </template>
           <template #default="{ row }">
             <slot v-if="col.slot" :name="col.slot" :row="row" />
             <span v-else>{{ col.formatter ? col.formatter(row[col.key], row) : (row[col.key] ?? '—') }}</span>
@@ -37,6 +43,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { QuestionFilled } from '@element-plus/icons-vue'
 
 const props = defineProps({
   columns: { type: Array, default: () => [] },
@@ -78,6 +85,8 @@ function onSize(s) {
 .cg-table-wrap { width: 100%; }
 .cg-fill .cg-table-wrap { flex: 1; min-height: 0; }
 .cg-actions { display: flex; gap: 4px; justify-content: center; flex-wrap: wrap; }
+.cg-header-tip { color: var(--text-3); cursor: help; font-size: 14px; margin-left: 3px; vertical-align: middle; }
+.cg-header-tip:hover { color: var(--brand); }
 .cg-pager { display: flex; justify-content: flex-end; margin-top: 12px; }
 .cg-fill .cg-pager { flex-shrink: 0; margin-top: 10px; }
 </style>

@@ -72,7 +72,8 @@ const columns = [
   { key: 'pageCount', label: '页数', width: 70, align: 'center' },
   { key: 'type', label: '类型', width: 90, slot: 'type' },
   { key: 'parsed', label: '解析状态', width: 100, slot: 'parsed' },
-  { key: 'contractNo', label: '合同号', minWidth: 130 },
+  { key: 'contractNo', label: '合同号', minWidth: 130,
+    headerTip: '此合同号为从上传文件中 OCR 解析识别得出，非手工录入；如存在误识别，以文件原件为准。' },
   { key: 'verifyStatus', label: '校验', width: 130, slot: 'verify' },
   { key: 'uploadedAt', label: '上传时间', width: 170, formatter: (v) => v ? v.replace('T', ' ').slice(0, 19) : '—' },
 ]
