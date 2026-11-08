@@ -1,0 +1,48 @@
+# ===== Python（paddle-v3-studio）=====
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# ===== Node / 前端 =====
+node_modules/
+dist/
+.vite/
+*.local
+
+# ===== 运行时写盘区（上传件/产物/合同条目/配置/设备状态/端口指针）=====
+data/
+*.log
+
+# ===== 模型库（体积大，离线预下载，不入库）=====
+models/
+MODEL-V3/
+*.gguf
+*.pdiparams
+*.pdmodel
+
+# ===== Java / Maven（contract-source）=====
+target/
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+.mvn/
+*.class
+
+# ===== H2 数据库文件 =====
+*.mv.db
+*.trace.db
+*.lock.db
+
+# ===== IDE / 编辑器 =====
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+
+# ===== 操作系统 =====
+.DS_Store
+Thumbs.db
+desktop.ini
