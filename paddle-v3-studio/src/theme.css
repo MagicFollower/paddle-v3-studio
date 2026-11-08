@@ -1,0 +1,25 @@
+:root {
+  --bg: #f5f7fa;
+  --panel: #ffffff;
+  --border: #e4e7ed;
+  --text: #303133;
+  --text-2: #606266;
+  --text-3: #909399;
+  --brand: #2563eb;
+  --high: #16a34a;
+  --review: #d97706;
+  --low: #dc2626;
+  --layout-box: rgba(37, 99, 235, 0.85);
+  --contract-no-box: #dc2626;
+  --table-box: #7c3aed;
+}
+* { box-sizing: border-box; }
+html, body, #app { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--text); font-family: "Segoe UI", "Microsoft YaHei", sans-serif; }
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
+.tier-high { color: var(--high); }
+.tier-review { color: var(--review); }
+.tier-low { color: var(--low); }
+.tier-none { color: var(--text-3); }
+.mono { font-family: Consolas, monospace; font-size: 12px; }
+.muted { color: var(--text-3); font-size: 12px; }

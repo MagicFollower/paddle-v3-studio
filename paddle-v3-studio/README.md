@@ -1,0 +1,121 @@
+# Paddle V3 版面分析与 OCR 工作台（paddle-v3-studio）
+
+方案B 的新项目：**PaddleOCR 3.x 的 PP-StructureV3 全新 V3 流水线**
+（PP-DocLayoutV3 版面检测 + PP-OCRv5 文本检测/识别 + SLANeXt 表格识别），
+与隔壁 `paddleocr-vl-studio` 的 GGUF/llama.cpp 路线完全独立：这里有真正的
+**版面类别标签、表格结构化、OCR 置信度**——这三样正是 GGUF 路线给不了的。
+
+Vue 3 + Element Plus 前端（固定版本 vue 3.5.44 / element-plus 2.14.7 / vite 7.3.7 /
+@vitejs/plugin-vue 6.0.10 / @element-plus/icons-vue 2.3.2）+ FastAPI 后端 + 项目内 `.venv`。
+
+## 两个任务，一个工程
+
+1. **图片解析**：上传图片 → 版面区域框（类别+score）+ OCR 文本框（置信度三档分色）
+   + 表格 HTML；右栏块卡片 / OCR 文本 / JSON 三页签，框与卡片双向联动。
+2. **合同校验**：上传合同 docx/pdf，**一个文件一个条目**；逐页转独立图片
+   （PDF 用 pypdfium2；DOCX 经本机 WPS COM 转 PDF），每页跑 V3 流水线；
+   标出**合同号区域与文本**、**明细表格区域与条目**，再对照
+   `../contract-source`（Spring Boot Web 2.7.18 + H2）查询数据源逐行校验。
+
+## 离线纪律（与 MODEL/offline 同款）
+
+- **安装阶段联网，运行时零联网**：`scripts\setup.cmd` 一次性装依赖并把流水线全部
+  模型预下载进 **`../../MODEL-V3`**（ASCII 模型库）；运行时更新检查被禁用
+  （`PADDLE_PDX_DISABLE_UPDATE_CHECK`），模型目录显式传入，缺模型直接报
+  `MODEL_MISSING`，**不偷偷下载、不回落假数据**。
+- **为什么模型库不在工程内**：Paddle 的 C++ 推理引擎在 Windows 上**读不了含中文的
+  路径**（实测同一份模型，ASCII 路径加载成功、中文路径报
+  `json.exception.parse_error.101 empty input`）。本工程在「方案B：版面分析与OCR」
+  下，路径含中文，所以模型库放 ASCII 的 `OCR-ALONE/MODEL-V3`——与另一工程引用
+  `../MODEL/offline` 的惯例一致。可用 `PADDLE_V3_MODEL_HOME` 指到别的 ASCII 目录。
+- 合同数据源 H2 是**文件库**（`contract-source/data/contractdb`），种子数据在
+  `data.sql`，重启不丢、不依赖外部数据库。
+- 前后端只绑 `127.0.0.1`，写盘只碰 `data/`。
+
+## GPU 优先，降级留痕
+
+`server/device.py` 先查 CUDA 编译旗标与设备数，再**真做一次 GPU 张量运算**自检；
+任何一步失败就降级 CPU，原因写进 `data/device.json` 并经 `/api/model/status`
+暴露——系统设置页有黄色告警条，顶栏有 `CPU（GPU 降级）` 标签。
+配置 `model.device = auto|gpu|cpu`；`gpu` 档不可用时同样降级并明说原因。
+
+## 跑起来（顺序不能反）
+
+```bat
+scripts\setup.cmd          :: venv + GPU轮子(失败自动CPU) + paddleocr + 预下载模型（联网仅此一次）
+build.cmd                  :: npm ci + vite build
+run.cmd                    :: FastAPI 同源直出 dist 与 /api，默认 http://127.0.0.1:8390
+..\contract-source\run.cmd :: 合同数据源 http://127.0.0.1:8081（合同校验功能需要）
+```
+
+浏览器开 **http://127.0.0.1:8390/**。端口被占自动后移（8390–8430），实际端口写
+`data/.port`（vite dev 代理读它）。开发回路：`run.cmd` + `npm run dev`（5175）。
+
+## 样例与判据
+
+```bat
+.venv\Scripts\python.exe scripts\make_fixtures.py   :: 生成三份样例合同 docx+pdf（WPS COM）
+.venv\Scripts\python.exe scripts\check_studio.py    :: 端到端判据（自起后端，真上传真推理真校验）
+```
+
+三份样例对应三种校验结局：
+
+| fixture | 合同号 | 预期结局 |
+|---|---|---|
+| sample-HT-2026-001.docx/pdf | HT-2026-001 | matched（与数据源逐行一致） |
+| sample-HT-2026-002-bad.docx | HT-2026-002 | mismatch（硒鼓数量 25≠20、金额不符） |
+| sample-HT-2026-999.docx | HT-2026-999 | not_found（数据源无此合同号） |
+
+## 接口契约（后端 server/app.py）
+
+| 方法 路径 | 作用 |
+|---|---|
+| `GET /api/health` / `/api/overview` | 探活 / 计数 |
+| `GET /api/model/status` / `POST /api/model/reprobe` | 设备+模型就位状态 / 重新探测 |
+| `GET /api/schema` / `GET|POST /api/config` / `POST /api/config/validate` | schema 驱动配置 |
+| `GET|POST /api/documents` | 图片列表 / 上传（文件头校验，自动起任务） |
+| `GET /api/documents/:id` `/image` `/result` `/raw` | 明细 / 图片字节 / 归一化结果 / 原始 JSON |
+| `DELETE /api/documents/:id` / `POST .../favorite` | 删除（连带产物）/ 收藏 |
+| `POST /api/parse` / `GET /api/jobs?refId=` / `GET /api/jobs/:id` | 起任务 / 任务列表 / 明细（stagePath 真实） |
+| `GET|POST /api/contracts` / `POST /api/contracts/upload` | 合同条目 / 上传 docx/pdf |
+| `GET /api/contracts/:id/result` / `/pages/:n/image` | 解析产物 / 页图字节 |
+| `POST /api/contracts/:id/parse` / `/reverify` | 重新解析 / 只重跑校验 |
+| `GET /api/source/status` | Spring Boot 数据源探活 |
+
+数据源契约（contract-source）：`GET /api/health`、`GET /api/contracts`、
+`GET /api/contracts/{no}` → `{contract, items[]}`，不存在回 404。
+
+## 目录
+
+```
+server/app.py            FastAPI 主程序（同源直出 dist，端口回退写 data/.port）
+server/pipeline.py       PP-StructureV3 封装：离线模型目录、缩放还原、结果归一化
+server/device.py         GPU 优先探测 + 真张量自检 + 降级留痕
+server/config.py         data/config.json 默认值唯一来源 + schema + 交叉约束
+server/store.py          上传件/产物/合同条目落盘（只碰 data/）
+server/jobs.py           单工作线程任务引擎（图片三阶段 / 合同五阶段）
+server/contract.py       WPS COM 转 PDF、pypdfium2 逐页转图、合同号正则、表格 HTML→条目
+server/verify.py         对照数据源逐行校验（品名相似度+数量/单价/金额容差）
+src/                     Vue3 前端（App + 三视图 + PageViewer 覆盖层）
+scripts/setup.cmd        一次性安装（GPU 轮子失败自动 CPU）+ 预下载模型
+scripts/setup_models.py  模型预下载与就位校验（落到 ../../MODEL-V3）
+scripts/make_fixtures.py 样例合同生成（docx→WPS COM→pdf）
+scripts/check_studio.py  端到端判据（退出码=失败条数）
+../../MODEL-V3/          ASCII 模型库（运行时唯一模型来源，中文路径不可用）
+data/                    上传件、产物、合同条目、配置、设备状态（运行时写盘区）
+fixtures/                样例合同与真图
+```
+
+## 已知边界
+
+- **模型库必须在 ASCII 路径**：Paddle C++ 引擎读不了中文路径（见上）。工程内
+  `data/`、`fixtures/` 含中文无碍——那些由 Python/WPS 读写；只有送进 Paddle 推理
+  引擎的模型目录受此限制。
+- DOCX 转 PDF 依赖本机 **WPS Office**（COM `KWPS.Application`，回退 `Word.Application`）；
+  没有 WPS/Word 的机器上 docx 合同会失败并如实报错，PDF 合同不受影响。
+- 合同号提取靠正则（合同编号/合同号/编号/Contract No 等），非常规写法可能漏检，
+  漏检时校验结局为 `no_number`，界面明示，不猜一个号。
+- 明细对照的品名匹配是粗相似度（包含关系/Jaccard），只用于定位对应行；
+  数量/单价/金额按容差（默认 0.01）硬比对。校验报告是辅助，不替代人工复核。
+- 表格结构识别对无线表/复杂合并单元格的还原率未量化；`SLANeXt_wired` 针对有线表。
+- 任务表在内存，重启后任务历史清空；文档、产物、合同条目都在盘上。
