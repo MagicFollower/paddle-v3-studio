@@ -82,7 +82,8 @@
             :width="pageData.width" :height="pageData.height"
             :layout="pageData.layout" :ocr="display.show_ocr ? pageData.ocr : []"
             :marks="marksForPage" :show-layout="display.show_layout"
-            :selected="selected" :active-row="activeRowForPage" @select="id => selected = id" />
+            :selected="selected" :active-row="activeRowForPage" :review-rows="reviewRowsForPage"
+            @select="id => selected = id" />
         </div>
 
         <div class="right panel">
@@ -194,6 +195,42 @@
               <el-empty v-if="!pageData?.ocr?.length" description="本页无 OCR 结果" :image-size="60" />
             </el-scrollbar>
           </el-tab-pane>
+          <el-tab-pane label="合同明细" name="items">
+            <el-scrollbar height="100%">
+              <div class="items-bar">
+                <el-button size="small" :icon="CopyDocument" @click="copyJson">复制为Json</el-button>
+                <el-upload :show-file-list="false" :http-request="doImportReview" accept=".json,application/json">
+                  <el-button size="small" :icon="Upload">导入Json</el-button>
+                </el-upload>
+                <el-tag v-if="reviewData" size="small" type="warning" effect="plain">已导入回填Json</el-tag>
+              </div>
+              <div class="sec-title">合同号（归一化）</div>
+              <div class="mono no-text">{{ normalizedNo?.number || '—' }}</div>
+              <div class="sec-title" style="margin-top:10px">明细（归一化：去空白/去逗号/去冗余0）</div>
+              <el-table :data="normalizedEntries" size="small" border max-height="340">
+                <el-table-column prop="name" label="品名" min-width="110" show-overflow-tooltip />
+                <el-table-column prop="spec" label="规格" min-width="80" show-overflow-tooltip />
+                <el-table-column prop="unit" label="单位" width="60" />
+                <el-table-column prop="qty" label="数量" width="70" />
+                <el-table-column prop="price" label="单价" width="80" />
+                <el-table-column prop="amount" label="金额" width="90" />
+                <el-table-column v-if="anyReview" label="审核标记" width="90" align="center">
+                  <template #default="{ row }">
+                    <el-tooltip v-if="hasReview(row.review)" placement="top" effect="light">
+                      <template #content>
+                        <div class="help-tip">
+                          <div v-for="f in REVIEW_FIELDS" :key="f.key">{{ f.label }}：{{ row.review?.[f.key] ?? '—' }}</div>
+                        </div>
+                      </template>
+                      <el-tag size="small" type="warning">已审核</el-tag>
+                    </el-tooltip>
+                    <span v-else class="muted">—</span>
+                  </template>
+                </el-table-column>
+              </el-table>
+              <el-empty v-if="!normalizedEntries.length" description="暂无明细（未解析或无表格）" :image-size="50" />
+            </el-scrollbar>
+          </el-tab-pane>
           </el-tabs>
         </div>
       </div>
@@ -208,10 +245,10 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Upload, Refresh, Delete, CircleCheck, CircleClose, QuestionFilled } from '@element-plus/icons-vue'
+import { Upload, Refresh, Delete, CircleCheck, CircleClose, QuestionFilled, CopyDocument } from '@element-plus/icons-vue'
 import { api } from '../api.js'
 import { display, setDisplay } from '../display.js'
-import { formatBytes, VERIFY_LABEL, VERIFY_TYPE } from '../utils.js'
+import { formatBytes, VERIFY_LABEL, VERIFY_TYPE, cleanText, cleanNumber, REVIEW_FIELDS, hasReview } from '../utils.js'
 import PageViewer from '../components/PageViewer.vue'
 
 const FIELD_LABEL = { name: '品名', quantity: '数量', unitPrice: '单价', amount: '金额' }
@@ -228,6 +265,7 @@ const reverifying = ref(false)
 const rtab = ref('detail')
 const selected = ref(null)
 const activeEntry = ref(null)
+const reviewData = ref(null)
 let poll = null
 
 const extracted = computed(() => payload.value?.extracted)
@@ -249,6 +287,35 @@ const tierCount = computed(() => {
   for (const o of pageData.value?.ocr || []) if (c[o.tier] !== undefined) c[o.tier]++
   return c
 })
+// 合同明细二次解析：优先用导入的回填 JSON（含特殊标记），否则由解析产物归一化生成
+const detailJson = computed(() => {
+  if (reviewData.value && Array.isArray(reviewData.value.entries)) return reviewData.value
+  const ex = extracted.value
+  if (!ex) return null
+  const entries = []
+  for (const t of ex.tables || []) {
+    for (const e of t.entries || []) {
+      entries.push({
+        no: cleanText(e.no), name: cleanText(e.name), spec: cleanText(e.spec), unit: cleanText(e.unit),
+        qty: cleanNumber(e.qtyText ?? e.qty), price: cleanNumber(e.priceText ?? e.price),
+        amount: cleanNumber(e.amountText ?? e.amount),
+        page: t.page, rowBoxNorm: e.rowBoxNorm || null, tableBboxNorm: t.bboxNorm || null,
+      })
+    }
+  }
+  const no = ex.contractNo || {}
+  return {
+    contractId: currentId.value,
+    contractNo: { number: cleanText(no.number), page: no.page ?? null, bbox: no.bbox || null, bboxNorm: no.bboxNorm || null },
+    entries,
+  }
+})
+const normalizedEntries = computed(() => detailJson.value?.entries || [])
+const normalizedNo = computed(() => detailJson.value?.contractNo || null)
+const anyReview = computed(() => normalizedEntries.value.some(e => hasReview(e.review)))
+const reviewRowsForPage = computed(() => normalizedEntries.value
+  .filter(e => e.page === pageNo.value && e.rowBoxNorm && hasReview(e.review))
+  .map(e => ({ rowBoxNorm: e.rowBoxNorm, review: e.review, name: e.name })))
 const stageLabel = computed(() => {
   const s = job.value?.stages?.find(x => x.key === job.value?.stage)
   return s?.label || job.value?.stage || ''
@@ -279,9 +346,12 @@ async function openContract(c) {
   pageNo.value = 1
   activeEntry.value = null
   selected.value = null
+  reviewData.value = null
   try {
     current.value = await api.contract(c.id)
     if (current.value.status === 'parsed') payload.value = await api.contractResult(c.id)
+    const rv = await api.contractReview(c.id)
+    reviewData.value = (rv && Array.isArray(rv.entries)) ? rv : null
     job.value = (await api.jobs(c.id)).items[0] || null
     watchJob()
   } catch (e) { ElMessage.error(e.message) }
@@ -364,6 +434,24 @@ function selectOcr(i) {
   if (!display.show_ocr) display.show_ocr = true
 }
 
+async function copyJson() {
+  if (!detailJson.value) { ElMessage.warning('暂无可复制的明细'); return }
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(detailJson.value, null, 2))
+    ElMessage.success('合同明细 Json 已复制（含位置信息）')
+  } catch { ElMessage.error('复制失败（浏览器不允许写剪贴板）') }
+}
+
+async function doImportReview({ file }) {
+  try {
+    const data = JSON.parse(await file.text())
+    if (!data || !Array.isArray(data.entries)) { ElMessage.error('Json 需含 entries 数组'); return }
+    await api.saveContractReview(currentId.value, data)
+    reviewData.value = data
+    ElMessage.success('已导入回填 Json，特殊标记已显示')
+  } catch (e) { ElMessage.error(`导入失败：${e.message}`) }
+}
+
 onMounted(loadContracts)
 onUnmounted(() => clearInterval(poll))
 
@@ -410,6 +498,7 @@ watch(() => props.autoOpenId, async (id) => {
 .ocr-card { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 4px; cursor: pointer; }
 .ocr-card.on { border-color: var(--brand); background: #eff6ff; }
 .ocr-text { font-size: 13px; word-break: break-all; }
+.items-bar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
 .section { margin-bottom: 16px; }
 .sec-title { font-weight: 600; font-size: 13px; margin-bottom: 6px; display: flex; gap: 8px; align-items: center; }
 .no-card { display: flex; gap: 10px; align-items: center; margin-bottom: 4px; }

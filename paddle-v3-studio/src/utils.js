@@ -34,3 +34,29 @@ export function formatBytes(n) {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
   return `${(n / 1024 / 1024).toFixed(1)} MB`
 }
+
+// ===== 合同明细二次解析归一化 =====
+// 去除文本中的全部空白字符（空格/制表/换行），如「办公耗材 批次001」→「办公耗材批次001」
+export function cleanText(s) {
+  return s == null ? '' : String(s).replace(/\s+/g, '')
+}
+// 数值通用转换：移除千分位逗号与空白（1,000,0000→10000000）；
+// 小数点后冗余 0 去除（480.00→480、63.50→63.5）；非纯数值则退回去空白文本
+export function cleanNumber(v) {
+  if (v == null || v === '') return null
+  let s = String(v).replace(/[,，\s]/g, '')
+  if (!/^-?\d+(\.\d+)?$/.test(s)) return cleanText(s)
+  if (s.includes('.')) s = s.replace(/0+$/, '').replace(/\.$/, '')
+  return s === '' || s === '-' ? null : Number(s)
+}
+// 回填特殊标记字段（二次处理后可写入 JSON 的审核信息）
+export const REVIEW_FIELDS = [
+  { key: 'firstReviewer', label: '初审核人' },
+  { key: 'firstReviewTime', label: '初审核时间' },
+  { key: 'reviewer', label: '审核人' },
+  { key: 'reviewTime', label: '审核时间' },
+  { key: 'remark', label: '备注' },
+]
+export function hasReview(r) {
+  return !!r && REVIEW_FIELDS.some(f => r[f.key] != null && r[f.key] !== '')
+}

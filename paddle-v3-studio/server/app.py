@@ -360,6 +360,24 @@ def contract_parse(contract_id: str):
     return {"jobId": job["id"], "status": job["status"]}
 
 
+@app.get("/api/contracts/{contract_id}/review")
+def get_contract_review(contract_id: str):
+    if not store.get_contract(contract_id):
+        raise HTTPException(404, "合同条目不存在")
+    return store.load_contract_review(contract_id) or {}
+
+
+@app.post("/api/contracts/{contract_id}/review")
+async def save_contract_review(contract_id: str, request: Request):
+    if not store.get_contract(contract_id):
+        raise HTTPException(404, "合同条目不存在")
+    body = await request.json()
+    if not isinstance(body, dict) or not isinstance(body.get("entries"), list):
+        raise HTTPException(400, "review JSON 需为对象且含 entries 数组")
+    store.save_contract_review(contract_id, body)
+    return body
+
+
 @app.post("/api/contracts/{contract_id}/reverify")
 def contract_reverify(contract_id: str):
     if not store.get_contract(contract_id):

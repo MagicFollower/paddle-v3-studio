@@ -160,6 +160,19 @@ def load_contract_result(contract_id: str):
     return None
 
 
+def save_contract_review(contract_id: str, payload: dict):
+    d = CONTRACTS / contract_id
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "review.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+
+def load_contract_review(contract_id: str):
+    p = CONTRACTS / contract_id / "review.json"
+    if p.exists():
+        return json.loads(p.read_text(encoding="utf-8"))
+    return None
+
+
 def _now() -> str:
     from datetime import datetime, timezone
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")

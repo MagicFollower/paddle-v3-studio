@@ -47,6 +47,17 @@
           <div v-if="activeRow" ref="activeRowRef" class="box active-row" :style="bboxStyle(activeRow)">
             <span class="tag">选中明细</span>
           </div>
+          <div v-for="(r, i) in reviewRows" :key="'rv' + i" class="box review-row" :style="bboxStyle(r.rowBoxNorm)">
+            <el-tooltip placement="top" effect="light" :visible="openReview === i">
+              <template #content>
+                <div class="review-tip">
+                  <div v-for="f in REVIEW_FIELDS" :key="f.key"><b>{{ f.label }}</b>：{{ r.review?.[f.key] ?? '—' }}</div>
+                </div>
+              </template>
+              <span class="review-badge" @mouseenter="openReview = i" @mouseleave="openReview = null"
+                @click.stop="openReview = openReview === i ? null : i">审</span>
+            </el-tooltip>
+          </div>
         </div>
       </div>
     </div>
@@ -56,7 +67,7 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue'
 import { ZoomIn, ZoomOut } from '@element-plus/icons-vue'
-import { bboxStyle, polyStyle } from '../utils.js'
+import { bboxStyle, polyStyle, REVIEW_FIELDS } from '../utils.js'
 import { display } from '../display.js'
 
 const props = defineProps({
@@ -68,6 +79,7 @@ const props = defineProps({
   showOcr: { type: Boolean, default: true },
   selected: String,
   activeRow: { type: Array, default: null },
+  reviewRows: { type: Array, default: () => [] },
 })
 defineEmits(['select'])
 
@@ -75,6 +87,7 @@ const zoom = ref((display.default_zoom ?? 60) / 100)
 const fit = ref(false)
 const stageRef = ref(null)
 const activeRowRef = ref(null)
+const openReview = ref(null)
 const stageW = ref(800)
 
 function scrollToActive() {
@@ -123,4 +136,8 @@ const canvasStyle = computed(() => {
 .mark-table .tag { position: absolute; top: -20px; left: -3px; background: var(--table-box); color: #fff; font-size: 11px; padding: 1px 6px; border-radius: 3px; white-space: nowrap; }
 .active-row { border: 2px solid #f59e0b; background: rgba(245,158,11,.30); z-index: 9; box-shadow: 0 0 0 2px rgba(245,158,11,.45); pointer-events: none; }
 .active-row .tag { position: absolute; top: -20px; left: -2px; background: #f59e0b; color: #fff; font-size: 11px; padding: 1px 6px; border-radius: 3px; white-space: nowrap; }
+.review-row { border: 1px dashed var(--match-ok); background: rgba(22,163,74,.06); z-index: 8; pointer-events: none; }
+.review-badge { position: absolute; top: -10px; right: -8px; width: 18px; height: 18px; border-radius: 50%; background: var(--match-ok); color: #fff; font-size: 11px; display: flex; align-items: center; justify-content: center; cursor: pointer; pointer-events: auto; box-shadow: 0 0 0 2px #fff; }
+.review-tip { line-height: 1.8; font-size: 12px; max-width: 320px; }
+.review-tip b { color: var(--brand); margin-right: 4px; }
 </style>
