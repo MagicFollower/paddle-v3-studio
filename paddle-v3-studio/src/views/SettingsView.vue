@@ -56,13 +56,23 @@
         <div class="sec-title">{{ g.label }}</div>
         <el-form label-width="230px" size="small">
           <el-form-item v-for="f in g.fields" :key="f.key" :label="f.label">
-            <el-switch v-if="f.type === 'bool'" v-model="cfgForm[g.key][f.key]" />
-            <el-input-number v-else-if="f.type === 'number'" v-model="cfgForm[g.key][f.key]"
-              :min="f.min" :max="f.max" :step="f.step || 1" />
-            <el-select v-else-if="f.type === 'enum'" v-model="cfgForm[g.key][f.key]" style="width:160px">
-              <el-option v-for="o in f.options" :key="o" :label="o" :value="o" />
-            </el-select>
-            <el-input v-else v-model="cfgForm[g.key][f.key]" style="width:320px" />
+            <div class="field-row">
+              <el-switch v-if="f.type === 'bool'" v-model="cfgForm[g.key][f.key]" />
+              <el-input-number v-else-if="f.type === 'number'" v-model="cfgForm[g.key][f.key]"
+                :min="f.min" :max="f.max" :step="f.step || 1" />
+              <el-select v-else-if="f.type === 'enum'" v-model="cfgForm[g.key][f.key]" style="width:160px">
+                <el-option v-for="o in f.options" :key="o" :label="o" :value="o" />
+              </el-select>
+              <el-input v-else v-model="cfgForm[g.key][f.key]" style="width:320px" />
+              <el-tooltip v-if="f.help" placement="top" effect="light" :show-after="150" popper-class="help-popper">
+                <template #content>
+                  <div class="help-tip">
+                    <div v-for="(v, k) in f.help" :key="k" class="help-line"><b>{{ k }}</b> {{ v }}</div>
+                  </div>
+                </template>
+                <el-icon class="help-icon"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </div>
           </el-form-item>
         </el-form>
       </div>
@@ -79,7 +89,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Refresh } from '@element-plus/icons-vue'
+import { Refresh, QuestionFilled } from '@element-plus/icons-vue'
 import { api } from '../api.js'
 
 const schema = ref(null)
@@ -121,10 +131,11 @@ async function save() {
   saving.value = true
   try {
     await api.saveConfig(cfgForm)
-    ElMessage.success('配置已保存')
-    status.value = await api.modelStatus()
-    await checkSource()
+    ElMessage.success('配置已保存（data/config.json）')
   } catch (e) { ElMessage.error(e.message) } finally { saving.value = false }
+  // 状态刷新放在按钮复位之后，不阻塞保存（设备变化时此处会懒重探）
+  try { status.value = await api.modelStatus() } catch {}
+  checkSource()
 }
 
 onMounted(async () => {
@@ -138,4 +149,10 @@ onMounted(async () => {
 .sec-title { font-weight: 600; margin-bottom: 10px; }
 .row { display: flex; gap: 10px; align-items: center; }
 .foot { display: flex; gap: 10px; align-items: center; padding: 4px 2px; }
+.field-row { display: flex; align-items: center; gap: 8px; }
+.help-icon { color: var(--text-3); cursor: help; font-size: 16px; }
+.help-icon:hover { color: var(--brand); }
+.help-tip { max-width: 360px; line-height: 1.7; font-size: 12px; }
+.help-line { margin-bottom: 4px; }
+.help-line b { color: var(--brand); margin-right: 4px; }
 </style>

@@ -38,7 +38,7 @@ def detect_device(preference: str = "auto", force: bool = False) -> dict:
     """preference: auto/gpu/cpu。结果落盘 data/device.json，重启后仍可显示上次探测。"""
     global _state
     with _lock:
-        if _state is not None and not force:
+        if _state is not None and not force and _state.get("requested") == preference:
             return _state
         info = {"requested": preference, "device": "cpu", "device_name": None,
                 "fallback": False, "reason": None, "paddle_version": None, "cuda_compiled": False}
@@ -69,9 +69,3 @@ def detect_device(preference: str = "auto", force: bool = False) -> dict:
 def current_device() -> str:
     info = detect_device()
     return "gpu:0" if info["device"] == "gpu" else "cpu"
-
-
-def reset():
-    global _state
-    with _lock:
-        _state = None

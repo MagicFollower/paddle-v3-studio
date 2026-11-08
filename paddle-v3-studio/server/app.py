@@ -102,13 +102,14 @@ def get_config():
 
 @app.post("/api/config")
 async def post_config(request: Request):
+    # 纯 JSON 文件存储：只校验+写盘，不在此触发流水线/设备重建（避免阻塞保存）。
+    # 配置生效是懒式的：get_pipeline 下次解析按 key 变化自动重建，
+    # detect_device 在 preference 变化时自动重探。
     patch = await request.json()
     try:
         merged = cfgmod.save_config(patch)
     except ValueError as e:
         raise HTTPException(400, str(e))
-    pipeline.invalidate()
-    devmod.reset()
     return merged
 
 
