@@ -36,6 +36,24 @@ Vue 3 + Element Plus 前端（固定版本 vue 3.5.44 / element-plus 2.14.7 / vi
 合同详情页有专节展示；`scripts/check_contract_no.py` 以合成数据覆盖全部开关
 （17 条，`--selftest` 注入缺陷自证会红）。
 
+## 显示与配色（系统设置 · 显示与配色）
+
+区域框选开关与配色统一在 `config.display`，图片解析与合同校验两视图共用
+（[`src/display.js`](src/display.js) 响应式共享 + CSS 变量全局生效）：
+
+| 开关 | 默认 | 作用 |
+|---|---|---|
+| `show_contract_no` 合同号区域框 | 开 | 合同页图标出合同号区域 |
+| `show_contract_table` 合同明细表格框 | 开 | 合同页图标出明细表格区域 |
+| `show_layout` 版面区域框 | 关 | 叠加版面检测区域框 |
+| `show_ocr` OCR 文本框 | 关 | 叠加 OCR 文本框（三档着色） |
+
+- 两视图顶部有**快捷开关**，切换即时生效并写回 `data/config.json`。
+- 8 项**自定义配色**（合同号/明细表/版面/OCR 三档/校验一致/不符），默认即原配色方案；
+  设置页每项带取色器与「还原」按钮，可**单独还原默认**；编辑即时预览，保存后全局生效。
+- 设备「重新探测」自检前会 `paddle.disable_static()`，避免推理后静态图导致 `.numpy()`
+  误报 GPU 降级；合同数据源「测试连接」给出成功/失败提示。
+
 ## 离线纪律（与 MODEL/offline 同款）
 
 - **安装阶段联网，运行时零联网**：`scripts\setup.cmd` 一次性装依赖并把流水线全部
@@ -117,9 +135,13 @@ server/contract.py       WPS COM 转 PDF、pypdfium2 逐页转图、合同号正
 server/verify.py         对照数据源逐行校验（品名相似度+数量/单价/金额容差）
 src/                     Vue3 前端（App + 三视图 + PageViewer 覆盖层）
 scripts/setup.cmd        一次性安装（GPU 轮子失败自动 CPU）+ 预下载模型
-scripts/setup_models.py  模型预下载与就位校验（落到 ../../MODEL-V3）
+scripts/setup_models.py  模型预下载与就位校验（落到 ../../MODEL-V3，需 venv）
+scripts/download_models.py 双击即用离线模型下载器（纯标准库，已存在则跳过）
 scripts/make_fixtures.py 样例合同生成（docx→WPS COM→pdf）
 scripts/check_studio.py  端到端判据（退出码=失败条数）
+scripts/check_contract_no.py 合同号七开关判据（17 条，--selftest 自证）
+scripts/check_paths.py   相对路径合规判据（扫硬编码绝对路径）
+doc/                     离线模型使用清单 + 项目与模型存放位置规范
 ../../MODEL-V3/          ASCII 模型库（运行时唯一模型来源，中文路径不可用）
 data/                    上传件、产物、合同条目、配置、设备状态（运行时写盘区）
 fixtures/                样例合同与真图
@@ -132,8 +154,9 @@ fixtures/                样例合同与真图
   引擎的模型目录受此限制。
 - DOCX 转 PDF 依赖本机 **WPS Office**（COM `KWPS.Application`，回退 `Word.Application`）；
   没有 WPS/Word 的机器上 docx 合同会失败并如实报错，PDF 合同不受影响。
-- 合同号提取靠正则（合同编号/合同号/编号/Contract No 等），非常规写法可能漏检，
-  漏检时校验结局为 `no_number`，界面明示，不猜一个号。
+- 合同号提取靠正则（合同编号/合同号/编号/Contract No 等）+ 上节七个开关；非常规写法
+  仍可能漏检，漏检时校验结局为 `no_number`，界面明示，不猜一个号。格式白名单与易混
+  归一化需按实际合同模板调配，默认保守（白名单空、归一化关）。
 - 明细对照的品名匹配是粗相似度（包含关系/Jaccard），只用于定位对应行；
   数量/单价/金额按容差（默认 0.01）硬比对。校验报告是辅助，不替代人工复核。
 - 表格结构识别对无线表/复杂合并单元格的还原率未量化；`SLANeXt_wired` 针对有线表。

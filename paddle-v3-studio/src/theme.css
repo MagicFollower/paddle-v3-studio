@@ -12,6 +12,8 @@
   --layout-box: rgba(37, 99, 235, 0.85);
   --contract-no-box: #dc2626;
   --table-box: #7c3aed;
+  --match-ok: #16a34a;
+  --match-bad: #dc2626;
 }
 * { box-sizing: border-box; }
 html, body, #app { height: 100%; margin: 0; }

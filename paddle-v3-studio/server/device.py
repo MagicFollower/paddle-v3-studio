@@ -25,6 +25,9 @@ def _probe_gpu():
     except Exception:
         name = "CUDA device 0"
     try:
+        # PaddleX 推理会把全局切到静态图，.numpy() 仅在动态图可用；
+        # 自检前显式回到动态图，避免推理后 reprobe 误报 GPU 降级。
+        paddle.disable_static()
         place = paddle.CUDAPlace(0)
         x = paddle.to_tensor([1.0, 2.0], place=place)
         y = (x * 2).numpy()

@@ -28,10 +28,15 @@
         </div>
         <el-alert v-if="job?.status === 'failed'" type="error" :closable="false" class="job-bar"
           :title="`解析失败：${job.error?.code} — ${job.error?.message}`" :description="job.error?.hint" />
+        <div class="overlay-toggles">
+          <span class="muted">框选：</span>
+          <el-checkbox v-model="display.show_layout" @change="v => setDisplay('show_layout', v)" size="small">版面区域</el-checkbox>
+          <el-checkbox v-model="display.show_ocr" @change="v => setDisplay('show_ocr', v)" size="small">OCR 文本</el-checkbox>
+        </div>
         <div class="split">
           <PageViewer :src="api.imageUrl(current.id)" :width="current.width" :height="current.height"
             :layout="result?.layout || []" :ocr="result?.ocr || []"
-            :show-layout="cfg.parse.show_layout_boxes" :show-ocr="cfg.parse.show_ocr_boxes"
+            :show-layout="display.show_layout" :show-ocr="display.show_ocr"
             :selected="selected" @select="selected = $event" />
           <div class="right panel">
             <el-tabs v-model="tab" class="tabs">
@@ -90,6 +95,7 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Upload, Search, Refresh, Delete } from '@element-plus/icons-vue'
 import { api } from '../api.js'
+import { display, setDisplay } from '../display.js'
 import { formatBytes, TIER_LABEL } from '../utils.js'
 import PageViewer from '../components/PageViewer.vue'
 
@@ -102,7 +108,7 @@ const job = ref(null)
 const selected = ref(null)
 const tab = ref('layout')
 const uploading = ref(false)
-const cfg = reactive({ parse: { show_layout_boxes: true, show_ocr_boxes: true, review_confidence: 0.9, min_confidence: 0.7 } })
+const cfg = reactive({ parse: { review_confidence: 0.9, min_confidence: 0.7 } })
 let poll = null
 
 const activeJob = computed(() => job.value && ['queued', 'running'].includes(job.value.status))
@@ -201,6 +207,7 @@ onUnmounted(() => clearInterval(poll))
 .doc-name { font-size: 13px; word-break: break-all; margin-bottom: 3px; }
 .work { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .job-bar { padding: 8px 12px; display: flex; gap: 12px; align-items: center; }
+.overlay-toggles { display: flex; gap: 12px; align-items: center; padding: 2px 4px; }
 .split { flex: 1; display: flex; gap: 10px; min-height: 0; }
 .right { width: 380px; flex-shrink: 0; display: flex; flex-direction: column; }
 .tabs { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0 10px; }

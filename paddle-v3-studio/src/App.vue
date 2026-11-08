@@ -42,6 +42,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Picture, Document, Setting, Refresh } from '@element-plus/icons-vue'
 import { api } from './api.js'
+import { loadDisplay } from './display.js'
 import ImageParse from './views/ImageParse.vue'
 import ContractCheck from './views/ContractCheck.vue'
 import SettingsView from './views/SettingsView.vue'
@@ -79,7 +80,7 @@ async function refresh() {
   }
 }
 
-onMounted(() => { refresh(); timer = setInterval(refresh, 15000) })
+onMounted(() => { refresh(); loadDisplay(); timer = setInterval(refresh, 15000) })
 onUnmounted(() => clearInterval(timer))
 </script>
 

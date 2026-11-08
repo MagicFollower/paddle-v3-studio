@@ -53,12 +53,15 @@
             <el-radio-group v-model="pageNo" size="small">
               <el-radio-button v-for="p in payload.pages" :key="p.page" :value="p.page">第 {{ p.page }} 页</el-radio-button>
             </el-radio-group>
-            <el-checkbox v-model="showOcr" size="small">OCR 框</el-checkbox>
+            <el-checkbox v-model="display.show_contract_no" @change="v => setDisplay('show_contract_no', v)" size="small">合同号</el-checkbox>
+            <el-checkbox v-model="display.show_contract_table" @change="v => setDisplay('show_contract_table', v)" size="small">明细表</el-checkbox>
+            <el-checkbox v-model="display.show_layout" @change="v => setDisplay('show_layout', v)" size="small">版面</el-checkbox>
+            <el-checkbox v-model="display.show_ocr" @change="v => setDisplay('show_ocr', v)" size="small">OCR</el-checkbox>
           </div>
           <PageViewer v-if="pageData" :src="api.contractPageUrl(current.id, pageNo)"
             :width="pageData.width" :height="pageData.height"
-            :layout="pageData.layout" :ocr="showOcr ? pageData.ocr : []"
-            :marks="marksForPage" :show-layout="true" />
+            :layout="pageData.layout" :ocr="display.show_ocr ? pageData.ocr : []"
+            :marks="marksForPage" :show-layout="display.show_layout" />
         </div>
 
         <div class="right panel">
@@ -124,7 +127,7 @@
               <div class="muted mono" style="margin-bottom:6px">{{ report.sourceUrl }}</div>
               <el-alert v-if="report.hint" type="info" :closable="false" :title="report.hint" style="margin-bottom:6px" />
               <div v-for="c in report.checks" :key="c.key" class="check-row">
-                <el-icon :color="c.ok ? 'var(--high)' : 'var(--low)'">
+                <el-icon :color="c.ok ? 'var(--match-ok)' : 'var(--match-bad)'">
                   <CircleCheck v-if="c.ok" /><CircleClose v-else />
                 </el-icon>
                 <span>{{ c.label }}</span><span class="muted">{{ c.detail }}</span>
@@ -161,6 +164,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Upload, Refresh, Delete, CircleCheck, CircleClose } from '@element-plus/icons-vue'
 import { api } from '../api.js'
+import { display, setDisplay } from '../display.js'
 import { formatBytes, VERIFY_LABEL, VERIFY_TYPE } from '../utils.js'
 import PageViewer from '../components/PageViewer.vue'
 
@@ -173,7 +177,6 @@ const current = ref(null)
 const payload = ref(null)
 const job = ref(null)
 const pageNo = ref(1)
-const showOcr = ref(false)
 const uploading = ref(false)
 const reverifying = ref(false)
 let poll = null
@@ -185,8 +188,9 @@ const marksForPage = computed(() => {
   if (!extracted.value) return null
   const no = extracted.value.contractNo
   return {
-    contractNo: no && no.page === pageNo.value ? no : null,
-    tables: (extracted.value.tables || []).filter(t => t.page === pageNo.value),
+    contractNo: display.show_contract_no && no && no.page === pageNo.value ? no : null,
+    tables: display.show_contract_table
+      ? (extracted.value.tables || []).filter(t => t.page === pageNo.value) : [],
   }
 })
 const stageLabel = computed(() => {
@@ -299,7 +303,7 @@ onUnmounted(() => clearInterval(poll))
 .check-row { display: flex; gap: 6px; align-items: center; font-size: 13px; padding: 3px 0; flex-wrap: wrap; }
 .cross-row { display: flex; gap: 8px; align-items: center; font-size: 12px; padding: 2px 0; }
 .cmp-card { border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-bottom: 6px; }
-.cmp-card.bad { border-color: var(--low); background: #fef2f2; }
+.cmp-card.bad { border-color: var(--match-bad); background: #fef2f2; }
 .cmp-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; font-size: 13px; }
 .cmp-field { display: flex; gap: 10px; font-size: 12px; padding: 2px 0; flex-wrap: wrap; }
 .cmp-field.bad { color: var(--low); }

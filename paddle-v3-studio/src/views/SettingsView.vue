@@ -47,7 +47,7 @@
             {{ source?.reachable ? '在线' : '不可达' }}
           </el-tag>
           <span class="mono muted">{{ cfgForm.contract?.source_url }}</span>
-          <el-button size="small" :icon="Refresh" @click="checkSource">测试连接</el-button>
+          <el-button size="small" :icon="Refresh" @click="testSource">测试连接</el-button>
         </div>
         <div class="muted" v-if="source && !source.reachable" style="margin-top:6px">{{ source.hint }} · {{ source.error }}</div>
       </div>
@@ -63,6 +63,14 @@
               <el-select v-else-if="f.type === 'enum'" v-model="cfgForm[g.key][f.key]" style="width:160px">
                 <el-option v-for="o in f.options" :key="o" :label="o" :value="o" />
               </el-select>
+              <div v-else-if="f.type === 'colors'" class="color-grid">
+                <div v-for="c in f.options" :key="c.key" class="color-row">
+                  <span class="color-label">{{ c.label }}</span>
+                  <el-color-picker v-model="cfgForm[g.key].colors[c.key]" size="small" />
+                  <span class="mono color-hex">{{ cfgForm[g.key].colors[c.key] }}</span>
+                  <el-button size="small" text type="primary" @click="cfgForm[g.key].colors[c.key] = c.default">还原</el-button>
+                </div>
+              </div>
               <el-input v-else v-model="cfgForm[g.key][f.key]" style="width:320px" />
               <el-tooltip v-if="f.help" placement="top" effect="light" :show-after="150" popper-class="help-popper">
                 <template #content>
@@ -87,10 +95,11 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh, QuestionFilled } from '@element-plus/icons-vue'
 import { api } from '../api.js'
+import { applyColors, loadDisplay } from '../display.js'
 
 const schema = ref(null)
 const status = ref(null)
@@ -117,6 +126,12 @@ async function checkSource() {
   try { source.value = await api.sourceStatus() } catch (e) { source.value = { reachable: false, error: e.message } }
 }
 
+async function testSource() {
+  await checkSource()
+  if (source.value?.reachable) ElMessage.success('合同数据源连接成功')
+  else ElMessage.error(`合同数据源连接失败：${source.value?.error || '不可达'}（先启动 contract-source）`)
+}
+
 async function reprobe() {
   probing.value = true
   try {
@@ -132,11 +147,15 @@ async function save() {
   try {
     await api.saveConfig(cfgForm)
     ElMessage.success('配置已保存（data/config.json）')
+    await loadDisplay()
   } catch (e) { ElMessage.error(e.message) } finally { saving.value = false }
   // 状态刷新放在按钮复位之后，不阻塞保存（设备变化时此处会懒重探）
   try { status.value = await api.modelStatus() } catch {}
   checkSource()
 }
+
+// 配色编辑即时预览（保存后由 loadDisplay 以盘上值为准）
+watch(() => cfgForm.display?.colors, (colors) => { if (colors) applyColors(colors) }, { deep: true })
 
 onMounted(async () => {
   try { await reload(); await checkSource() } catch (e) { ElMessage.error(e.message) }
@@ -155,4 +174,8 @@ onMounted(async () => {
 .help-tip { max-width: 360px; line-height: 1.7; font-size: 12px; }
 .help-line { margin-bottom: 4px; }
 .help-line b { color: var(--brand); margin-right: 4px; }
+.color-grid { display: flex; flex-direction: column; gap: 6px; }
+.color-row { display: flex; align-items: center; gap: 8px; }
+.color-label { width: 110px; font-size: 12px; color: var(--text-2); }
+.color-hex { width: 70px; color: var(--text-3); }
 </style>

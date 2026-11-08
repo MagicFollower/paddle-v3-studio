@@ -15,13 +15,31 @@ CONFIG_PATH = DATA / "config.json"
 MODELS_HOME = Path(os.environ.get(
     "PADDLE_V3_MODEL_HOME", str(ROOT.parent.parent / "MODEL-V3"))).resolve()
 
+# 区域框选与匹配情况的默认配色（与 theme.css 初始方案一致）
+COLOR_FIELDS = [
+    {"key": "contract_no", "label": "合同号区域", "default": "#dc2626"},
+    {"key": "contract_table", "label": "合同明细表格", "default": "#7c3aed"},
+    {"key": "layout", "label": "版面区域", "default": "#2563eb"},
+    {"key": "ocr_high", "label": "OCR 高置信", "default": "#16a34a"},
+    {"key": "ocr_review", "label": "OCR 需复核", "default": "#d97706"},
+    {"key": "ocr_low", "label": "OCR 低置信", "default": "#dc2626"},
+    {"key": "match_ok", "label": "校验一致", "default": "#16a34a"},
+    {"key": "match_bad", "label": "校验不符", "default": "#dc2626"},
+]
+DEFAULT_COLORS = {c["key"]: c["default"] for c in COLOR_FIELDS}
+
 DEFAULTS = {
     "parse": {
         "use_table_recognition": True,
         "review_confidence": 0.9,
         "min_confidence": 0.7,
-        "show_layout_boxes": True,
-        "show_ocr_boxes": True,
+    },
+    "display": {
+        "show_contract_no": True,
+        "show_contract_table": True,
+        "show_layout": False,
+        "show_ocr": False,
+        "colors": dict(DEFAULT_COLORS),
     },
     "model": {
         "device": "auto",
@@ -90,6 +108,11 @@ def validate_config(patch: dict) -> list:
             re.compile(fmt)
         except re.error as e:
             errs.append(f"no_format_regex 不是合法正则：{e}")
+    import re as _re
+    hexcolor = _re.compile(r"^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
+    for k, v in (merged["display"].get("colors") or {}).items():
+        if not hexcolor.match(str(v)):
+            errs.append(f"颜色 {k} 必须是 #RGB 或 #RRGGBB 格式")
     return errs
 
 
@@ -126,12 +149,27 @@ SCHEMA = {
                  "help": {"作用": "置信度 < 此值判「低置信」（红），介于两阈值之间判「需复核」（黄）。",
                           "生效": "与 review_confidence 一同实时生效；须小于 review_confidence。",
                           "选项": "0~1，默认 0.7；调高则更多行落入需复核/低置信。"}},
-                {"key": "show_layout_boxes", "label": "显示版面区域框", "type": "bool",
-                 "help": {"作用": "左栏是否叠加版面区域框（类别+score）。",
-                          "生效": "纯前端显示开关，实时读取，不改变解析结果。", "选项": "开/关。"}},
-                {"key": "show_ocr_boxes", "label": "显示 OCR 文本框", "type": "bool",
-                 "help": {"作用": "左栏是否叠加 OCR 文本框（按置信度三档着色）。",
-                          "生效": "纯前端显示开关，实时读取。", "选项": "开/关。"}},
+            ],
+        },
+        {
+            "key": "display", "label": "显示与配色",
+            "fields": [
+                {"key": "show_contract_no", "label": "合同号区域框", "type": "bool",
+                 "help": {"作用": "合同页图上标出合同号所在区域。",
+                          "生效": "前端实时读取，默认开。", "选项": "开/关。"}},
+                {"key": "show_contract_table", "label": "合同明细表格框", "type": "bool",
+                 "help": {"作用": "合同页图上标出明细表格区域。",
+                          "生效": "前端实时读取，默认开。", "选项": "开/关。"}},
+                {"key": "show_layout", "label": "版面区域框", "type": "bool",
+                 "help": {"作用": "叠加版面检测区域框（类别+score）。",
+                          "生效": "前端实时读取，默认关。", "选项": "开/关。"}},
+                {"key": "show_ocr", "label": "OCR 文本框", "type": "bool",
+                 "help": {"作用": "叠加 OCR 文本框（按置信度三档着色）。",
+                          "生效": "前端实时读取，默认关。", "选项": "开/关。"}},
+                {"key": "colors", "label": "区域与匹配配色", "type": "colors", "options": COLOR_FIELDS,
+                 "help": {"作用": "自定义各区域框选与校验匹配的颜色。",
+                          "生效": "保存后经 CSS 变量全局实时生效；每项可单独还原默认。",
+                          "选项": "默认即当前配色方案；点各项「还原」恢复该项默认色。"}},
             ],
         },
         {
