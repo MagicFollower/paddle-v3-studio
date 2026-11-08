@@ -359,10 +359,11 @@ def _num(s):
     return float(m.group()) if m else None
 
 
-def table_to_entries(html: str) -> dict:
+def table_to_entries(html: str, fallback: dict = None) -> dict:
     grid = html_table_to_grid(html)
     if not grid:
-        return {"headers": [], "entries": [], "totalRow": None}
+        return {"headers": [], "entries": [], "totalRow": None,
+                "colmap": (fallback or {}).get("colmap")}
     header_idx, colmap = None, {}
     for i, row in enumerate(grid[:3]):
         cm = {}
@@ -374,11 +375,18 @@ def table_to_entries(html: str) -> dict:
             header_idx, colmap = i, cm
             break
     if header_idx is None:
-        return {"headers": [str(c) if c is not None else "" for c in grid[0]],
-                "entries": [], "totalRow": None}
-    headers = [str(c) if c is not None else "" for c in grid[header_idx]]
+        # 跨页续表：本页无表头则沿用上一页列映射，整页按数据行处理
+        if not (fallback and fallback.get("colmap")):
+            return {"headers": [str(c) if c is not None else "" for c in grid[0]],
+                    "entries": [], "totalRow": None, "colmap": None}
+        colmap = fallback["colmap"]
+        headers = fallback.get("headers") or [str(c) if c is not None else "" for c in grid[0]]
+        data_rows = grid
+    else:
+        headers = [str(c) if c is not None else "" for c in grid[header_idx]]
+        data_rows = grid[header_idx + 1:]
     entries, total_row = [], None
-    for row in grid[header_idx + 1:]:
+    for row in data_rows:
         def get(key):
             j = colmap.get(key)
             return row[j] if j is not None and j < len(row) else None
@@ -395,4 +403,4 @@ def table_to_entries(html: str) -> dict:
             "price": _num(get("price")), "priceText": get("price"),
             "amount": _num(get("amount")), "amountText": get("amount"),
         })
-    return {"headers": headers, "entries": entries, "totalRow": total_row}
+    return {"headers": headers, "entries": entries, "totalRow": total_row, "colmap": colmap}

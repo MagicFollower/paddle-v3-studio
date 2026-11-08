@@ -118,11 +118,30 @@ def main():
         check("A5 四个模型本地就位", s == 200 and models_present, json.dumps({k: v["present"] for k, v in j.get("models", {}).items()}))
         check("A6 设备信息如实（gpu/cpu+原因）", dev.get("device") in ("gpu", "cpu") and "paddle_version" in dev,
               f"device={dev.get('device')} fallback={dev.get('fallback')}")
-        check("A7 自动解析默认关闭", cfg["parse"].get("auto_parse_on_upload") is False)
+        # A7/A8 自动解析开关：A7 查源码 DEFAULTS（免受运行时配置污染），A8 显式置关后验上传不起任务
+        sys.path.insert(0, str(ROOT / "server"))
+        import config as _cfgmod
+        import contract as _ct
+        check("A7 自动解析默认关闭", _cfgmod.DEFAULTS["parse"].get("auto_parse_on_upload") is False)
+        req("POST", "/api/config", {"parse": {"auto_parse_on_upload": False}})
         img0 = (FIX / "upload-sample.png").read_bytes()
         s, _, j0 = req("POST", "/api/documents", form={"file": ("noauto.png", img0, "image/png")})
         check("A8 关闭时上传不起任务", s == 201 and j0.get("jobId") is None and j0.get("autoParsed") is False, str(j0)[:80])
         req("DELETE", f"/api/documents/{j0.get('id')}")
+        # A9/A10 跨页续表沿用上一页列映射（纯单元，无需 GPU/推理）
+        _hdr = ('<table><tr><td>序号</td><td>品名</td><td>数量</td><td>金额</td></tr>'
+                '<tr><td>1</td><td>甲</td><td>2</td><td>20</td></tr></table>')
+        _cont = '<table><tr><td>2</td><td>乙</td><td>3</td><td>30</td></tr></table>'
+        _r1 = _ct.table_to_entries(_hdr)
+        _carry = {"headers": _r1.get("headers"), "colmap": _r1.get("colmap")}
+        _r2 = _ct.table_to_entries(_cont, fallback=_carry)
+        _r2n = _ct.table_to_entries(_cont)
+        check("A9 续表无表头沿用上一页列映射出明细",
+              len(_r1.get("entries", [])) == 1 and len(_r2.get("entries", [])) == 1
+              and (_r2.get("entries") or [{}])[0].get("name") == "乙",
+              f"p1={len(_r1.get('entries', []))} p2={len(_r2.get('entries', []))}")
+        check("A10 无 fallback 时续表 0 条（向后兼容）",
+              len(_r2n.get("entries", [])) == 0, f"got={len(_r2n.get('entries', []))}")
         # 后续 B/C 段需要自动解析，临时开启
         req("POST", "/api/config", {"parse": {"auto_parse_on_upload": True}})
 
@@ -262,6 +281,10 @@ def main():
         check("D7 条目字段齐全", all(all(k in x for k in ("id", "name", "size", "ext", "pageCount", "uploadedAt", "type")) for x in big["items"]))
         return finish()
     finally:
+        try:
+            req("POST", "/api/config", {"parse": {"auto_parse_on_upload": False}}, timeout=5)
+        except Exception:
+            pass
         server.terminate()
         try:
             server.wait(timeout=10)

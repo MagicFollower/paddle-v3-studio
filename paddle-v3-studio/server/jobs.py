@@ -157,10 +157,13 @@ def start_contract_job(contract_id: str) -> dict:
 
             _log(job, "extract", "提取合同号与明细表格")
             no_info = ct.extract_contract_no(page_results)
-            tables = []
+            tables, carry = [], None
             for pr in page_results:
                 for t in pr.get("tables", []):
-                    parsed = ct.table_to_entries(t.get("html", ""))
+                    parsed = ct.table_to_entries(t.get("html", ""), fallback=carry)
+                    cm = parsed.pop("colmap", None)
+                    if cm:
+                        carry = {"headers": parsed.get("headers"), "colmap": cm}
                     tables.append({"page": pr["page"], "bbox": t.get("bbox"),
                                    "bboxNorm": t.get("bboxNorm"), **parsed})
             extracted = {"contractNo": no_info["found"], "noCandidates": no_info["candidates"],
