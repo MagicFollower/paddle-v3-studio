@@ -85,6 +85,15 @@ def verify(extracted: dict, source_url: str) -> dict:
         check("contract_no", "合同号存在于数据源", False, f"数据源中不存在合同号 {number}")
         return report
     check("contract_no", "合同号存在于数据源", True, f"数据源命中合同 {number}")
+    cp = extracted.get("crossPage") or {}
+    if cp.get("enabled"):
+        pages = cp.get("pages", [])
+        if cp.get("consistent"):
+            check("cross_page", "跨页合同号一致", True,
+                  f"编号在 {len(pages)} 页出现 {cp.get('occurrenceCount', 0)} 次，均一致")
+        else:
+            check("cross_page", "跨页合同号一致", False,
+                  f"各页编号不一致：{cp.get('distinctNumbers', [])}（出现于页 {pages}）")
     contract = data.get("contract") or {}
     items = data.get("items") or []
     report["sourceContract"] = contract

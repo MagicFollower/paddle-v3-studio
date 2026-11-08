@@ -35,6 +35,13 @@ DEFAULTS = {
         "source_url": "http://127.0.0.1:8081",
         "page_dpi": 150,
         "amount_tolerance": 0.01,
+        "match_single_line": True,
+        "match_multi_line": True,
+        "cross_page_check": True,
+        "min_no_confidence": 0.6,
+        "no_format_regex": "",
+        "prefer_first_page": True,
+        "normalize_confusables": False,
     },
 }
 
@@ -73,6 +80,16 @@ def validate_config(patch: dict) -> list:
         errs.append("device 只能是 auto/gpu/cpu")
     if merged["contract"]["page_dpi"] < 72 or merged["contract"]["page_dpi"] > 400:
         errs.append("page_dpi 必须在 72~400")
+    ct = merged["contract"]
+    if not (0 <= ct["min_no_confidence"] <= 1):
+        errs.append("min_no_confidence 必须在 0~1")
+    fmt = (ct.get("no_format_regex") or "").strip()
+    if fmt:
+        import re
+        try:
+            re.compile(fmt)
+        except re.error as e:
+            errs.append(f"no_format_regex 不是合法正则：{e}")
     return errs
 
 
@@ -116,6 +133,13 @@ SCHEMA = {
                 {"key": "source_url", "label": "合同数据源地址（Spring Boot）", "type": "text"},
                 {"key": "page_dpi", "label": "合同逐页转图 DPI", "type": "number", "min": 72, "max": 400, "step": 1},
                 {"key": "amount_tolerance", "label": "金额比对容差", "type": "number", "min": 0, "max": 1, "step": 0.001},
+                {"key": "match_single_line", "label": "合同号单行匹配（标签与编号同行）", "type": "bool"},
+                {"key": "match_multi_line", "label": "合同号多行匹配（标签/编号分行或编号折行）", "type": "bool"},
+                {"key": "cross_page_check", "label": "跨页合同号准确性校验（一致性+多数投票）", "type": "bool"},
+                {"key": "min_no_confidence", "label": "合同号 OCR 置信度下限（低于则丢弃）", "type": "number", "min": 0, "max": 1, "step": 0.01},
+                {"key": "no_format_regex", "label": "合同号格式白名单正则（fullmatch，空=不启用）", "type": "text"},
+                {"key": "prefer_first_page", "label": "首页优先（选定/平票优先最早页）", "type": "bool"},
+                {"key": "normalize_confusables", "label": "易混字符归一化（O→0、I/l→1）", "type": "bool"},
             ],
         },
     ]

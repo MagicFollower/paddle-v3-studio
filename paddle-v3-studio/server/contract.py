@@ -104,35 +104,171 @@ _LABEL_ONLY = re.compile(r"^(合同编号|合同号码|合同号|协议编号|�
 _BARE_NO = re.compile(r"^[A-Za-z]{0,6}[-_]?\d{2,}[-A-Za-z0-9_/\.第号年月日]*$")
 
 
-def extract_contract_no(pages_ocr: list) -> dict:
-    """pages_ocr: [{page, ocr:[{text,bbox,bboxNorm,poly}]}]。返回首个命中 + 全部候选。"""
-    candidates = []
+_CONFUSABLE = str.maketrans({"O": "0", "o": "0", "I": "1", "l": "1"})
+
+
+def _canon(s: str, normalize: bool) -> str:
+    """跨页比对/投票用的归一化键：去空白、可选易混字符替换、转大写。"""
+    s = re.sub(r"\s+", "", s or "")
+    if normalize:
+        s = s.translate(_CONFUSABLE)
+    return s.upper()
+
+
+def _clean_number(s: str, normalize: bool) -> str:
+    """输出/查询用编号：trim，可选易混字符替换（保留大小写）。"""
+    s = (s or "").strip()
+    return s.translate(_CONFUSABLE) if normalize else s
+
+
+def _read_multiline_number(lines: list, i: int):
+    """标签独占一行时，从其后 1~2 行读出编号（含编号本身被折成两行的情况）。
+    返回 (number, 用于定位的行索引, source) 或 None。"""
+    if i + 1 >= len(lines):
+        return None
+    nxt = (lines[i + 1].get("text") or "").strip()
+    nxt2 = (lines[i + 2].get("text") or "").strip() if i + 2 < len(lines) else None
+    # 首行以连接符结尾（如 HT-2026-）疑似编号被折行，优先与次行拼接；
+    # 否则 _BARE_NO 允许尾部连字符，会把半截编号误判为完整。
+    if nxt2 is not None and re.search(r"[-_/]$", nxt):
+        for joined in (nxt + nxt2, nxt + "-" + nxt2):
+            if _BARE_NO.match(joined):
+                return joined, i + 1, "split-line"
+    if _BARE_NO.match(nxt):
+        return nxt, i + 1, "next-line"
+    if nxt2 is not None and re.match(r"^[A-Za-z0-9][A-Za-z0-9\-_/\.]*$", nxt):
+        for joined in (nxt + nxt2, nxt + "-" + nxt2):
+            if _BARE_NO.match(joined):
+                return joined, i + 1, "split-line"
+    return None
+
+
+def _select_found(candidates: list, cross: bool, prefer_first: bool, normalize: bool):
+    if not candidates:
+        return None
+    if not cross:
+        return candidates[0]   # 候选按页序排列，首个即最早页
+    # 跨页开启：多数投票；平票时（若首页优先）先看是否出现在最早页，再取最早出现者
+    min_page = min(c["page"] for c in candidates)
+    first_idx, counts, on_min_page = {}, {}, {}
+    for idx, c in enumerate(candidates):
+        k = _canon(c["number"], normalize)
+        counts[k] = counts.get(k, 0) + 1
+        first_idx.setdefault(k, idx)
+        if c["page"] == min_page:
+            on_min_page[k] = True
+
+    def score(k):
+        return (counts[k], (1 if on_min_page.get(k) else 0) if prefer_first else 0, -first_idx[k])
+
+    best = max(counts, key=score)
+    return candidates[first_idx[best]]
+
+
+def extract_contract_no(pages_ocr: list, options: dict = None) -> dict:
+    """pages_ocr: [{page, ocr:[{text,bbox,bboxNorm,poly,confidence}]}]。
+
+    匹配与跨页开关（默认全开）：
+      match_single_line  单行匹配：标签与编号同在一行
+      match_multi_line   多行匹配：标签独占一行、编号在下一行或被折成两行
+      cross_page_check   跨页准确性校验：统计各页出现、判定一致性、多数投票选定
+    准确性增强开关：
+      min_no_confidence      候选行 OCR 置信度下限（低于则丢弃，默认 0.6）
+      no_format_regex        编号格式白名单正则（fullmatch，空=不启用）
+      prefer_first_page      选定/平票时优先最早页命中（默认开）
+      normalize_confusables  跨页比对与输出编号做 O→0/I,l→1 归一化（默认关）
+    均可取自 config.contract，或被 options 覆盖。
+    """
+    cfg = cfgmod.load_config()["contract"]
+    opt = options or {}
+
+    def get(key, default):
+        return opt.get(key, cfg.get(key, default))
+
+    single = get("match_single_line", True)
+    multi = get("match_multi_line", True)
+    cross = get("cross_page_check", True)
+    min_conf = float(get("min_no_confidence", 0.6))
+    prefer_first = get("prefer_first_page", True)
+    normalize = get("normalize_confusables", False)
+    fmt = (get("no_format_regex", "") or "").strip()
+    fmt_re = None
+    if fmt:
+        try:
+            fmt_re = re.compile(fmt)
+        except re.error:
+            fmt_re = None   # 非法正则不启用过滤（config 校验会另行报错）
+
+    raw = []
     for pg in pages_ocr:
         lines = pg.get("ocr", [])
         for i, line in enumerate(lines):
             text = (line.get("text") or "").strip()
-            for pat in CONTRACT_NO_PATTERNS:
-                m = pat.search(text)
-                if m:
-                    candidates.append({
-                        "page": pg["page"], "number": m.group(1).strip(),
-                        "lineText": text, "bbox": line.get("bbox"),
-                        "bboxNorm": line.get("bboxNorm"), "poly": line.get("poly"),
-                        "source": "same-line",
-                    })
-                    break
-            else:
-                if _LABEL_ONLY.match(text) and i + 1 < len(lines):
-                    nxt = lines[i + 1]
-                    nxt_text = (nxt.get("text") or "").strip()
-                    if _BARE_NO.match(nxt_text):
-                        candidates.append({
-                            "page": pg["page"], "number": nxt_text,
-                            "lineText": f"{text} {nxt_text}",
-                            "bbox": nxt.get("bbox"), "bboxNorm": nxt.get("bboxNorm"),
-                            "poly": nxt.get("poly"), "source": "next-line",
+            matched = False
+            if single:
+                for pat in CONTRACT_NO_PATTERNS:
+                    m = pat.search(text)
+                    if m:
+                        raw.append({
+                            "page": pg["page"], "number": m.group(1).strip(),
+                            "lineText": text, "bbox": line.get("bbox"),
+                            "bboxNorm": line.get("bboxNorm"), "poly": line.get("poly"),
+                            "confidence": line.get("confidence"), "source": "same-line",
                         })
-    return {"found": candidates[0] if candidates else None, "candidates": candidates}
+                        matched = True
+                        break
+            if multi and not matched and _LABEL_ONLY.match(text):
+                read = _read_multiline_number(lines, i)
+                if read:
+                    number, loc, source = read
+                    loc_line = lines[loc]
+                    raw.append({
+                        "page": pg["page"], "number": number,
+                        "lineText": f"{text} {number}", "bbox": loc_line.get("bbox"),
+                        "bboxNorm": loc_line.get("bboxNorm"), "poly": loc_line.get("poly"),
+                        "confidence": loc_line.get("confidence"), "source": source,
+                    })
+
+    candidates, dropped_conf, dropped_fmt = [], 0, 0
+    for c in raw:
+        conf = c.get("confidence")
+        if conf is not None and conf < min_conf:
+            dropped_conf += 1
+            continue
+        if fmt_re is not None and not fmt_re.fullmatch(c["number"]):
+            dropped_fmt += 1
+            continue
+        candidates.append(c)
+
+    found = _select_found(candidates, cross, prefer_first, normalize)
+    if found and normalize:
+        found = dict(found)
+        found["numberRaw"] = found["number"]
+        found["number"] = _clean_number(found["number"], True)
+
+    occurrences = [{"page": c["page"], "number": c["number"], "source": c["source"],
+                    "confidence": c.get("confidence")} for c in candidates]
+    distinct, seen = [], set()
+    for c in candidates:
+        k = _canon(c["number"], normalize)
+        if k not in seen:
+            seen.add(k)
+            distinct.append(_clean_number(c["number"], normalize))
+    pages = sorted({c["page"] for c in candidates})
+    cross_page = {
+        "enabled": bool(cross),
+        "occurrences": occurrences,
+        "pages": pages,
+        "distinctNumbers": distinct,
+        "occurrenceCount": len(candidates),
+        "consistent": (len(distinct) <= 1) if cross else None,
+        "chosenBy": "majority" if cross else "first",
+        "preferFirstPage": bool(prefer_first),
+        "normalizeConfusables": bool(normalize),
+        "filtered": {"confidence": dropped_conf, "format": dropped_fmt,
+                     "total": len(raw) - len(candidates)},
+    }
+    return {"found": found, "candidates": candidates, "crossPage": cross_page}
 
 
 # ---------- 表格 HTML → 结构化条目 ----------

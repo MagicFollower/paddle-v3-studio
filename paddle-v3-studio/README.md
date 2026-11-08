@@ -17,6 +17,25 @@ Vue 3 + Element Plus 前端（固定版本 vue 3.5.44 / element-plus 2.14.7 / vi
    标出**合同号区域与文本**、**明细表格区域与条目**，再对照
    `../contract-source`（Spring Boot Web 2.7.18 + H2）查询数据源逐行校验。
 
+## 合同号识别开关（系统设置 · 合同校验）
+
+合同号可能在文档中以单行或多行出现、并在多页重复。以下开关均可在界面配置
+（`config.contract`，逻辑见 [`server/contract.py`](server/contract.py) `extract_contract_no`）：
+
+| 开关 | 默认 | 作用 |
+|---|---|---|
+| `match_single_line` 单行匹配 | 开 | 标签与编号同行（`合同编号：HT-2026-001`） |
+| `match_multi_line` 多行匹配 | 开 | 标签独占一行、编号在下一行；编号被折成两行也会拼接 |
+| `cross_page_check` 跨页准确性校验 | 开 | 统计各页出现、判定一致性，按**多数投票**选定编号；不一致会在校验报告记一条不符 |
+| `min_no_confidence` 置信度下限 | 0.6 | 候选行 OCR 置信度低于此值则丢弃，挡低质量误读 |
+| `no_format_regex` 格式白名单 | 空 | 编号须 `fullmatch` 该正则才采纳（如 `^HT-\d{4}-\d{3}$`），空=不启用；挡发票号/附件号误命中 |
+| `prefer_first_page` 首页优先 | 开 | 选定/平票时优先最早页命中（合同号通常在首页） |
+| `normalize_confusables` 易混字符归一化 | 关 | 跨页比对与输出编号做 `O→0`、`I/l→1`，减少形近字导致的假"不一致"；可能掩盖真实差异，故默认关 |
+
+判定结果落在产物的 `extracted.crossPage`（出现次数/页/不同编号/一致性/过滤计数），
+合同详情页有专节展示；`scripts/check_contract_no.py` 以合成数据覆盖全部开关
+（17 条，`--selftest` 注入缺陷自证会红）。
+
 ## 离线纪律（与 MODEL/offline 同款）
 
 - **安装阶段联网，运行时零联网**：`scripts\setup.cmd` 一次性装依赖并把流水线全部

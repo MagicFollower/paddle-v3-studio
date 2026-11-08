@@ -164,7 +164,7 @@ def start_contract_job(contract_id: str) -> dict:
                     tables.append({"page": pr["page"], "bbox": t.get("bbox"),
                                    "bboxNorm": t.get("bboxNorm"), **parsed})
             extracted = {"contractNo": no_info["found"], "noCandidates": no_info["candidates"],
-                         "tables": tables}
+                         "crossPage": no_info["crossPage"], "tables": tables}
             job["progress"] = 78
 
             _log(job, "verify", "对照 Spring Boot 数据源校验")

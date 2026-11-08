@@ -71,8 +71,34 @@
                   <el-tag type="danger" size="small" effect="plain">第 {{ extracted.contractNo.page }} 页已标出</el-tag>
                 </div>
                 <div class="muted">命中行：{{ extracted.contractNo.lineText }}</div>
+                <div class="muted" v-if="extracted.contractNo.numberRaw">OCR 原读：{{ extracted.contractNo.numberRaw }}（已归一化）</div>
               </template>
               <el-alert v-else type="warning" :closable="false" title="未识别到合同编号" />
+            </div>
+
+            <div class="section" v-if="extracted?.crossPage?.enabled">
+              <div class="sec-title">
+                跨页合同号校验
+                <el-tag v-if="extracted.crossPage.consistent" type="success" size="small">一致</el-tag>
+                <el-tag v-else type="danger" size="small">不一致</el-tag>
+              </div>
+              <div class="muted" style="margin-bottom:6px">
+                出现 {{ extracted.crossPage.occurrenceCount }} 次 · 页 [{{ extracted.crossPage.pages.join(', ') }}]
+                · 选定方式 {{ extracted.crossPage.chosenBy === 'majority' ? '多数投票' : '首个命中' }}
+                <template v-if="extracted.crossPage.preferFirstPage"> · 首页优先</template>
+                <template v-if="extracted.crossPage.normalizeConfusables"> · 易混归一化</template>
+              </div>
+              <div v-if="extracted.crossPage.filtered?.total" class="muted" style="margin-bottom:6px">
+                已过滤 {{ extracted.crossPage.filtered.total }} 个候选（置信度 {{ extracted.crossPage.filtered.confidence }} / 格式 {{ extracted.crossPage.filtered.format }}）
+              </div>
+              <div v-if="!extracted.crossPage.consistent" class="muted" style="color:var(--low)">
+                不同编号：{{ extracted.crossPage.distinctNumbers.join(' / ') }}
+              </div>
+              <div v-for="(o, oi) in extracted.crossPage.occurrences" :key="oi" class="cross-row">
+                <el-tag size="small" effect="plain">第 {{ o.page }} 页</el-tag>
+                <span class="mono">{{ o.number }}</span>
+                <span class="muted">{{ SOURCE_LABEL[o.source] || o.source }}</span>
+              </div>
             </div>
 
             <div class="section">
@@ -139,6 +165,7 @@ import { formatBytes, VERIFY_LABEL, VERIFY_TYPE } from '../utils.js'
 import PageViewer from '../components/PageViewer.vue'
 
 const FIELD_LABEL = { name: '品名', quantity: '数量', unitPrice: '单价', amount: '金额' }
+const SOURCE_LABEL = { 'same-line': '单行', 'next-line': '多行(下行)', 'split-line': '多行(折行)' }
 
 const contracts = ref([])
 const currentId = ref(null)
@@ -270,6 +297,7 @@ onUnmounted(() => clearInterval(poll))
 .no-text { font-size: 18px; font-weight: 700; color: var(--contract-no-box); }
 .table-block { margin-bottom: 10px; }
 .check-row { display: flex; gap: 6px; align-items: center; font-size: 13px; padding: 3px 0; flex-wrap: wrap; }
+.cross-row { display: flex; gap: 8px; align-items: center; font-size: 12px; padding: 2px 0; }
 .cmp-card { border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-bottom: 6px; }
 .cmp-card.bad { border-color: var(--low); background: #fef2f2; }
 .cmp-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; font-size: 13px; }
