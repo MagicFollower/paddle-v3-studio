@@ -163,10 +163,16 @@ def normalize(raw: dict, width: int, height: int, scale: float, cfg: dict) -> di
     table_boxes = [b for b in layout if b["label"] in ("table", "table_title")]
     for i, t in enumerate(raw.get("table_res_list") or []):
         region = table_boxes[i]["bbox"] if i < len(table_boxes) else None
+        cells = []
+        for cb in (t.get("cell_box_list") or []):
+            if not cb or len(cb) < 4:
+                continue
+            cells.append(_norm(fix_box([cb[0], cb[1], cb[2], cb[3]]), width, height))
         tables.append({
             "bbox": region,
             "bboxNorm": _norm(region, width, height) if region else None,
             "html": t.get("pred_html", ""),
+            "cellBoxesNorm": cells,
         })
 
     blocks = []

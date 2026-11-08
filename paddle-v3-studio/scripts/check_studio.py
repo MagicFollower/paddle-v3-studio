@@ -238,6 +238,9 @@ def main():
             check(f"C4[{fname}] 合同号区域有坐标", bool(no.get("bbox") and no.get("bboxNorm")))
             entries = [e for t in payload["extracted"]["tables"] for e in t["entries"]]
             check(f"C5[{fname}] 明细行数={expect_rows}", len(entries) == expect_rows, f"got={len(entries)}")
+            boxed = [e for e in entries if e.get("rowBoxNorm")]
+            check(f"C5b[{fname}] 明细行定位坐标已生成", len(entries) > 0 and len(boxed) == len(entries),
+                  f"boxed={len(boxed)}/{len(entries)}")
             check(f"C6[{fname}] 表格区域有坐标", all(t.get("bbox") for t in payload["extracted"]["tables"]))
             rep = payload.get("report", {})
             check(f"C7[{fname}] 校验结局={expect_status}", rep.get("status") == expect_status,

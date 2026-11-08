@@ -81,10 +81,13 @@
           <PageViewer v-if="pageData" :src="api.contractPageUrl(current.id, pageNo)"
             :width="pageData.width" :height="pageData.height"
             :layout="pageData.layout" :ocr="display.show_ocr ? pageData.ocr : []"
-            :marks="marksForPage" :show-layout="display.show_layout" />
+            :marks="marksForPage" :show-layout="display.show_layout"
+            :selected="selected" :active-row="activeRowForPage" @select="id => selected = id" />
         </div>
 
         <div class="right panel">
+          <el-tabs v-model="rtab" class="rtabs">
+          <el-tab-pane label="校验详情" name="detail">
           <el-scrollbar height="100%">
             <div class="section">
               <div class="sec-title">合同号</div>
@@ -128,7 +131,8 @@
               <div class="sec-title">合同明细（表格区域提取）</div>
               <div v-for="(t, ti) in extracted?.tables || []" :key="ti" class="table-block">
                 <div class="muted">第 {{ t.page }} 页表格 · {{ t.entries.length }} 条明细<span v-if="t.totalRow"> · {{ t.totalRow.text }}</span></div>
-                <el-table :data="t.entries" size="small" border max-height="260">
+                <el-table :data="t.entries" size="small" border max-height="260" highlight-current-row
+                  :row-class-name="() => 'entry-row'" @row-click="(row) => selectEntry(t, row)">
                   <el-table-column prop="name" label="品名" min-width="110" show-overflow-tooltip />
                   <el-table-column prop="spec" label="规格" min-width="80" show-overflow-tooltip />
                   <el-table-column prop="qtyText" label="数量" width="70" />
@@ -171,6 +175,26 @@
               </template>
             </div>
           </el-scrollbar>
+          </el-tab-pane>
+          <el-tab-pane :label="`OCR文本 (${pageData?.ocr?.length || 0})`" name="ocr">
+            <el-scrollbar height="100%">
+              <div class="conf-summary" v-if="pageData?.ocr?.length">
+                <el-tag type="success" size="small" effect="plain">高 {{ tierCount.high }}</el-tag>
+                <el-tag type="warning" size="small" effect="plain">复核 {{ tierCount.review }}</el-tag>
+                <el-tag type="danger" size="small" effect="plain">低 {{ tierCount.low }}</el-tag>
+                <span class="muted">第 {{ pageNo }} 页 · 共 {{ pageData.ocr.length }} 行</span>
+              </div>
+              <div v-for="(o, i) in pageData?.ocr || []" :key="i" class="ocr-card"
+                :class="{ on: selected === 'o' + i }" @click="selectOcr(i)">
+                <span class="ocr-text">{{ o.text }}</span>
+                <el-tag :type="o.tier === 'high' ? 'success' : o.tier === 'review' ? 'warning' : o.tier === 'low' ? 'danger' : 'info'" size="small">
+                  {{ o.confidence ?? '—' }}
+                </el-tag>
+              </div>
+              <el-empty v-if="!pageData?.ocr?.length" description="本页无 OCR 结果" :image-size="60" />
+            </el-scrollbar>
+          </el-tab-pane>
+          </el-tabs>
         </div>
       </div>
       <el-empty v-else-if="current.status === 'parsing'" description="正在转换与识别…" class="panel empty" />
@@ -201,6 +225,9 @@ const job = ref(null)
 const pageNo = ref(1)
 const uploading = ref(false)
 const reverifying = ref(false)
+const rtab = ref('detail')
+const selected = ref(null)
+const activeEntry = ref(null)
 let poll = null
 
 const extracted = computed(() => payload.value?.extracted)
@@ -214,6 +241,13 @@ const marksForPage = computed(() => {
     tables: display.show_contract_table
       ? (extracted.value.tables || []).filter(t => t.page === pageNo.value) : [],
   }
+})
+const activeRowForPage = computed(() =>
+  activeEntry.value && activeEntry.value.page === pageNo.value ? activeEntry.value.box : null)
+const tierCount = computed(() => {
+  const c = { high: 0, review: 0, low: 0, none: 0 }
+  for (const o of pageData.value?.ocr || []) if (c[o.tier] !== undefined) c[o.tier]++
+  return c
 })
 const stageLabel = computed(() => {
   const s = job.value?.stages?.find(x => x.key === job.value?.stage)
@@ -243,6 +277,8 @@ async function openContract(c) {
   payload.value = null
   job.value = null
   pageNo.value = 1
+  activeEntry.value = null
+  selected.value = null
   try {
     current.value = await api.contract(c.id)
     if (current.value.status === 'parsed') payload.value = await api.contractResult(c.id)
@@ -305,6 +341,29 @@ async function removeContract() {
   } catch {}
 }
 
+function estimateRowBox(t, idx) {
+  const b = t.bboxNorm
+  if (!b || idx == null || !t.entries?.length) return null
+  const first = (extracted.value?.tables || [])[0]
+  const hasHeader = !first || t.page === first.page   // 首块表格带表头，跨页续表不带
+  const rows = t.entries.length + (hasHeader ? 1 : 0)
+  const h = (b[3] - b[1]) / rows
+  const off = hasHeader ? 1 : 0
+  return [b[0], b[1] + (idx + off) * h, b[2], b[1] + (idx + off + 1) * h]
+}
+
+function selectEntry(t, row) {
+  const idx = t.entries.indexOf(row)
+  if (idx < 0) return
+  pageNo.value = t.page
+  activeEntry.value = { page: t.page, box: row.rowBoxNorm || estimateRowBox(t, idx), key: `${t.page}-${idx}` }
+}
+
+function selectOcr(i) {
+  selected.value = 'o' + i
+  if (!display.show_ocr) display.show_ocr = true
+}
+
 onMounted(loadContracts)
 onUnmounted(() => clearInterval(poll))
 
@@ -343,6 +402,14 @@ watch(() => props.autoOpenId, async (id) => {
 .left { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .page-tabs { display: flex; gap: 10px; align-items: center; }
 .right { width: 430px; flex-shrink: 0; padding: 10px; }
+.rtabs { height: 100%; display: flex; flex-direction: column; }
+.rtabs :deep(.el-tabs__content) { flex: 1; min-height: 0; }
+.rtabs :deep(.el-tab-pane) { height: 100%; }
+.rtabs :deep(.entry-row) { cursor: pointer; }
+.conf-summary { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.ocr-card { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 4px; cursor: pointer; }
+.ocr-card.on { border-color: var(--brand); background: #eff6ff; }
+.ocr-text { font-size: 13px; word-break: break-all; }
 .section { margin-bottom: 16px; }
 .sec-title { font-weight: 600; font-size: 13px; margin-bottom: 6px; display: flex; gap: 8px; align-items: center; }
 .no-card { display: flex; gap: 10px; align-items: center; margin-bottom: 4px; }

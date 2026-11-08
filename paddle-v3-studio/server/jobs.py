@@ -160,12 +160,14 @@ def start_contract_job(contract_id: str) -> dict:
             tables, carry = [], None
             for pr in page_results:
                 for t in pr.get("tables", []):
-                    parsed = ct.table_to_entries(t.get("html", ""), fallback=carry)
+                    parsed = ct.table_to_entries(t.get("html", ""), fallback=carry,
+                                                 cells=t.get("cellBoxesNorm"))
                     cm = parsed.pop("colmap", None)
                     if cm:
                         carry = {"headers": parsed.get("headers"), "colmap": cm}
                     tables.append({"page": pr["page"], "bbox": t.get("bbox"),
                                    "bboxNorm": t.get("bboxNorm"), **parsed})
+                    t.pop("cellBoxesNorm", None)   # 单元格框仅用于定位，不持久化以免结果膨胀
             extracted = {"contractNo": no_info["found"], "noCandidates": no_info["candidates"],
                          "crossPage": no_info["crossPage"], "tables": tables}
             job["progress"] = 78

@@ -44,6 +44,9 @@
               <span class="tag">明细表 {{ t.entries?.length ?? 0 }} 行</span>
             </div>
           </template>
+          <div v-if="activeRow" ref="activeRowRef" class="box active-row" :style="bboxStyle(activeRow)">
+            <span class="tag">选中明细</span>
+          </div>
         </div>
       </div>
     </div>
@@ -51,7 +54,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { ZoomIn, ZoomOut } from '@element-plus/icons-vue'
 import { bboxStyle, polyStyle } from '../utils.js'
 import { display } from '../display.js'
@@ -64,17 +67,30 @@ const props = defineProps({
   showLayout: { type: Boolean, default: true },
   showOcr: { type: Boolean, default: true },
   selected: String,
+  activeRow: { type: Array, default: null },
 })
 defineEmits(['select'])
 
 const zoom = ref((display.default_zoom ?? 60) / 100)
 const fit = ref(false)
 const stageRef = ref(null)
+const activeRowRef = ref(null)
 const stageW = ref(800)
+
+function scrollToActive() {
+  const el = activeRowRef.value, stage = stageRef.value
+  if (!el || !stage) return
+  const er = el.getBoundingClientRect(), sr = stage.getBoundingClientRect()
+  const delta = (er.top - sr.top) - (stage.clientHeight / 2 - er.height / 2)
+  stage.scrollTop = Math.max(0, stage.scrollTop + delta)
+}
 
 function onLoad() {
   if (stageRef.value) stageW.value = stageRef.value.clientWidth - 24
+  nextTick(scrollToActive)
 }
+
+watch(() => props.activeRow, () => nextTick(scrollToActive))
 
 const canvasStyle = computed(() => {
   const base = fit.value ? Math.min(1, stageW.value / (props.width || 1)) : 1
@@ -105,4 +121,6 @@ const canvasStyle = computed(() => {
 .mark-no .tag { position: absolute; top: -20px; left: -3px; background: var(--contract-no-box); color: #fff; font-size: 11px; padding: 1px 6px; border-radius: 3px; white-space: nowrap; }
 .mark-table { border: 3px solid var(--table-box); background: rgba(124,58,237,.05); }
 .mark-table .tag { position: absolute; top: -20px; left: -3px; background: var(--table-box); color: #fff; font-size: 11px; padding: 1px 6px; border-radius: 3px; white-space: nowrap; }
+.active-row { border: 2px solid #f59e0b; background: rgba(245,158,11,.30); z-index: 9; box-shadow: 0 0 0 2px rgba(245,158,11,.45); pointer-events: none; }
+.active-row .tag { position: absolute; top: -20px; left: -2px; background: #f59e0b; color: #fff; font-size: 11px; padding: 1px 6px; border-radius: 3px; white-space: nowrap; }
 </style>

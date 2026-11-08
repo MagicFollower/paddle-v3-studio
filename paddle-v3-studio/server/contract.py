@@ -359,7 +359,26 @@ def _num(s):
     return float(m.group()) if m else None
 
 
-def table_to_entries(html: str, fallback: dict = None) -> dict:
+def _group_cell_rows(cells):
+    """把单元格框按 y 中心聚类成视觉行，返回每行并集框 [x0,y0,x1,y1]（与入参同坐标系）。"""
+    if not cells:
+        return None
+    rows = []
+    for b in sorted(cells, key=lambda x: (x[1] + x[3]) / 2):
+        if not b or len(b) < 4:
+            continue
+        yc = (b[1] + b[3]) / 2
+        target = next((r for r in rows if r[1] - 1 <= yc <= r[3] + 1), None)
+        if target is None:
+            rows.append([b[0], b[1], b[2], b[3]])
+        else:
+            target[0] = min(target[0], b[0]); target[1] = min(target[1], b[1])
+            target[2] = max(target[2], b[2]); target[3] = max(target[3], b[3])
+    rows.sort(key=lambda r: r[1])
+    return rows
+
+
+def table_to_entries(html: str, fallback: dict = None, cells=None) -> dict:
     grid = html_table_to_grid(html)
     if not grid:
         return {"headers": [], "entries": [], "totalRow": None,
@@ -381,12 +400,14 @@ def table_to_entries(html: str, fallback: dict = None) -> dict:
                     "entries": [], "totalRow": None, "colmap": None}
         colmap = fallback["colmap"]
         headers = fallback.get("headers") or [str(c) if c is not None else "" for c in grid[0]]
-        data_rows = grid
+        data_iter = list(enumerate(grid))
     else:
         headers = [str(c) if c is not None else "" for c in grid[header_idx]]
-        data_rows = grid[header_idx + 1:]
+        data_iter = list(enumerate(grid))[header_idx + 1:]
+    vrows = _group_cell_rows(cells)
+    use_cells = bool(vrows) and len(vrows) == len(grid)
     entries, total_row = [], None
-    for row in data_rows:
+    for gi, row in data_iter:
         def get(key):
             j = colmap.get(key)
             return row[j] if j is not None and j < len(row) else None
@@ -402,5 +423,6 @@ def table_to_entries(html: str, fallback: dict = None) -> dict:
             "unit": get("unit"), "qty": _num(get("qty")), "qtyText": get("qty"),
             "price": _num(get("price")), "priceText": get("price"),
             "amount": _num(get("amount")), "amountText": get("amount"),
+            "rowBoxNorm": [round(v, 2) for v in vrows[gi]] if (use_cells and gi < len(vrows)) else None,
         })
     return {"headers": headers, "entries": entries, "totalRow": total_row, "colmap": colmap}
