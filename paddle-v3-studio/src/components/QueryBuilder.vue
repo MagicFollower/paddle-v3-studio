@@ -31,8 +31,8 @@
     </div>
     <div class="qb-actions">
       <slot name="actions-left" />
-      <el-button @click="doReset">{{ resetText }}</el-button>
       <el-button type="primary" :icon="Search" @click="doSearch">{{ searchText }}</el-button>
+      <el-button @click="doReset">{{ resetText }}</el-button>
     </div>
   </div>
 </template>

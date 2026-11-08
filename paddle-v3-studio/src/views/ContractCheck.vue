@@ -1,5 +1,5 @@
 <template>
-  <div class="page">
+  <div class="page" ref="pageEl">
     <div class="side panel">
       <div class="side-head">
         <el-upload :show-file-list="false" :http-request="doUpload" accept=".docx,.doc,.pdf">
@@ -8,7 +8,7 @@
         <div class="muted">一个文件 = 一个条目，逐页转图识别</div>
       </div>
       <el-scrollbar class="doc-list">
-        <div v-for="c in contracts" :key="c.id" class="doc-item" :class="{ on: c.id === currentId }" @click="openContract(c)">
+        <div v-for="c in contracts" :key="c.id" class="doc-item" :data-id="c.id" :class="{ on: c.id === currentId }" @click="openContract(c)">
           <div class="doc-name">{{ c.name }}</div>
           <div class="muted row">
             <span>{{ c.pageCount || '?' }} 页</span>
@@ -42,7 +42,27 @@
             {{ VERIFY_LABEL[current.verifyStatus] || current.verifyStatus }}
           </el-tag>
           <el-button size="small" :icon="Refresh" @click="reverify" :loading="reverifying" :disabled="busy">重新校验</el-button>
+          <el-tooltip placement="top" effect="light">
+            <template #content>
+              <div class="help-tip">
+                <div class="help-line"><b>作用</b> 只重跑「对照数据源」校验，不重新转图与 OCR 推理。</div>
+                <div class="help-line"><b>流程</b> 读取已解析产物 extracted → 调数据源 API 取合同与明细 → 合同号/逐行数量单价金额比对 → 更新校验报告。</div>
+                <div class="help-line"><b>适用</b> 数据源补录或修改后快速复校，秒级完成。</div>
+              </div>
+            </template>
+            <el-icon class="help-icon"><QuestionFilled /></el-icon>
+          </el-tooltip>
           <el-button size="small" :icon="Refresh" @click="reparse" :disabled="busy">重新解析</el-button>
+          <el-tooltip placement="top" effect="light">
+            <template #content>
+              <div class="help-tip">
+                <div class="help-line"><b>作用</b> 重新执行完整解析与校验全流程。</div>
+                <div class="help-line"><b>流程</b> 转图(convert) → 逐页 V3 推理(predict) → 合同号与明细提取(extract) → 对照数据源校验(verify) → 产物落盘(persist)。</div>
+                <div class="help-line"><b>适用</b> 文件本身或解析/识别参数变化后，需重新 OCR 时使用。</div>
+              </div>
+            </template>
+            <el-icon class="help-icon"><QuestionFilled /></el-icon>
+          </el-tooltip>
           <el-button size="small" :icon="Delete" type="danger" plain @click="removeContract" :disabled="busy">删除</el-button>
         </div>
       </div>
@@ -160,9 +180,9 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Upload, Refresh, Delete, CircleCheck, CircleClose } from '@element-plus/icons-vue'
+import { Upload, Refresh, Delete, CircleCheck, CircleClose, QuestionFilled } from '@element-plus/icons-vue'
 import { api } from '../api.js'
 import { display, setDisplay } from '../display.js'
 import { formatBytes, VERIFY_LABEL, VERIFY_TYPE } from '../utils.js'
@@ -288,7 +308,21 @@ onUnmounted(() => clearInterval(poll))
 
 const props = defineProps({ autoOpenId: { type: String, default: null } })
 const emit = defineEmits(['opened'])
-watch(() => props.autoOpenId, (id) => { if (id) { openContract({ id }); emit('opened') } }, { immediate: true })
+const pageEl = ref(null)
+
+function scrollToCurrent() {
+  const el = pageEl.value?.querySelector(`.doc-item[data-id="${currentId.value}"]`)
+  if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+}
+
+watch(() => props.autoOpenId, async (id) => {
+  if (!id) return
+  await openContract({ id })
+  await loadContracts()
+  await nextTick()
+  scrollToCurrent()
+  emit('opened')
+}, { immediate: true })
 </script>
 
 <style scoped>
@@ -314,6 +348,11 @@ watch(() => props.autoOpenId, (id) => { if (id) { openContract({ id }); emit('op
 .table-block { margin-bottom: 10px; }
 .check-row { display: flex; gap: 6px; align-items: center; font-size: 13px; padding: 3px 0; flex-wrap: wrap; }
 .cross-row { display: flex; gap: 8px; align-items: center; font-size: 12px; padding: 2px 0; }
+.help-icon { color: var(--text-3); cursor: help; font-size: 15px; }
+.help-icon:hover { color: var(--brand); }
+.help-tip { max-width: 360px; line-height: 1.7; font-size: 12px; }
+.help-line { margin-bottom: 4px; }
+.help-line b { color: var(--brand); margin-right: 4px; }
 .cmp-card { border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-bottom: 6px; }
 .cmp-card.bad { border-color: var(--match-bad); background: #fef2f2; }
 .cmp-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; font-size: 13px; }

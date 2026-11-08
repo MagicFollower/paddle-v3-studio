@@ -1,5 +1,5 @@
 <template>
-  <div class="page">
+  <div class="page" ref="pageEl">
     <div class="side panel">
       <div class="side-head">
         <el-upload :show-file-list="false" :http-request="doUpload" accept=".png,.jpg,.jpeg,.bmp,.webp">
@@ -8,7 +8,7 @@
         <el-input v-model="q" size="small" placeholder="搜索文件名" clearable :prefix-icon="Search" @input="loadDocs" />
       </div>
       <el-scrollbar class="doc-list">
-        <div v-for="d in docs" :key="d.id" class="doc-item" :class="{ on: d.id === currentId }" @click="openDoc(d)">
+        <div v-for="d in docs" :key="d.id" class="doc-item" :data-id="d.id" :class="{ on: d.id === currentId }" @click="openDoc(d)">
           <div class="doc-name">{{ d.name }}</div>
           <div class="muted">
             {{ d.width }}×{{ d.height }} · {{ formatBytes(d.size) }}
@@ -91,7 +91,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Upload, Search, Refresh, Delete } from '@element-plus/icons-vue'
 import { api } from '../api.js'
@@ -201,7 +201,21 @@ onUnmounted(() => clearInterval(poll))
 
 const props = defineProps({ autoOpenId: { type: String, default: null } })
 const emit = defineEmits(['opened'])
-watch(() => props.autoOpenId, (id) => { if (id) { openDoc({ id }); emit('opened') } }, { immediate: true })
+const pageEl = ref(null)
+
+function scrollToCurrent() {
+  const el = pageEl.value?.querySelector(`.doc-item[data-id="${currentId.value}"]`)
+  if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+}
+
+watch(() => props.autoOpenId, async (id) => {
+  if (!id) return
+  await openDoc({ id })
+  await loadDocs()
+  await nextTick()
+  scrollToCurrent()
+  emit('opened')
+}, { immediate: true })
 </script>
 
 <style scoped>
