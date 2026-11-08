@@ -53,9 +53,10 @@ export function cleanNumber(v) {
 export const REVIEW_FIELDS = [
   { key: 'firstReviewer', label: '初审核人' },
   { key: 'firstReviewTime', label: '初审核时间' },
+  { key: 'firstRemark', label: '初审备注' },
   { key: 'reviewer', label: '审核人' },
   { key: 'reviewTime', label: '审核时间' },
-  { key: 'remark', label: '备注' },
+  { key: 'reviewRemark', label: '审核备注' },
 ]
 export function hasReview(r) {
   return !!r && REVIEW_FIELDS.some(f => r[f.key] != null && r[f.key] !== '')

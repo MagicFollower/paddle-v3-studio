@@ -249,11 +249,12 @@
                 <el-table-column label="审核" width="70">
                   <template #default="{ row }">{{ row.review?.reviewer || '—' }}</template>
                 </el-table-column>
-                <el-table-column label="操作" width="140" align="center">
+                <el-table-column label="操作" width="170" align="center">
                   <template #default="{ row }">
                     <el-button link type="primary" size="small" @click="jumpToEntry(row)">跳转</el-button>
-                    <el-button link type="warning" size="small" @click="openReview(row, 'first')">初审</el-button>
-                    <el-button link type="success" size="small" :disabled="!hasFirstReview(row)" @click="openReview(row, 'final')">审核</el-button>
+                    <el-button link type="warning" size="small" :disabled="firstBtnDisabled(row)" @click="onFirstClick(row)">{{ firstBtnLabel(row) }}</el-button>
+                    <el-button link type="success" size="small" :disabled="auditBtnDisabled(row)"
+                      :class="{ 'audit-disabled': auditBtnDisabled(row) }" @click="onAuditClick(row)">{{ auditBtnLabel(row) }}</el-button>
                   </template>
                 </el-table-column>
               </el-table>
@@ -278,7 +279,8 @@
           <el-form-item label="审核人"><el-input v-model="reviewForm.reviewer" placeholder="必填" /></el-form-item>
           <el-form-item label="审核时间"><el-input v-model="reviewForm.reviewTime" /></el-form-item>
         </template>
-        <el-form-item label="备注"><el-input v-model="reviewForm.remark" type="textarea" :rows="2" /></el-form-item>
+        <el-form-item v-if="reviewMode === 'first'" label="初审备注"><el-input v-model="reviewForm.firstRemark" type="textarea" :rows="2" /></el-form-item>
+        <el-form-item v-else label="审核备注"><el-input v-model="reviewForm.reviewRemark" type="textarea" :rows="2" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="reviewDialog = false">取消</el-button>
@@ -549,6 +551,39 @@ function errDetail(e) {
 function hasFirstReview(e) {
   return !!(e.review && (e.review.firstReviewer || e.review.firstReviewTime))
 }
+function hasFinalReview(e) {
+  return !!(e.review && (e.review.reviewer || e.review.reviewTime))
+}
+// 按钮状态机：未初审→[初审][审核置灰]；初审后→[取消初审][审核]；审核后→[初审禁用][取消审核]
+function firstBtnLabel(e) { return hasFirstReview(e) ? '取消初审' : '初审' }
+function firstBtnDisabled(e) { return hasFinalReview(e) }
+function auditBtnLabel(e) { return hasFinalReview(e) ? '取消审核' : '审核' }
+function auditBtnDisabled(e) { return !hasFirstReview(e) }
+function onFirstClick(e) { hasFirstReview(e) ? cancelReview(e, 'first') : openReview(e, 'first') }
+function onAuditClick(e) { hasFinalReview(e) ? cancelReview(e, 'final') : openReview(e, 'final') }
+async function removeReviewFields(key, keys) {
+  const base = JSON.parse(JSON.stringify(detailJson.value || { contractId: currentId.value, entries: [] }))
+  const t = (base.entries || []).find(e => entryKey(e) === key)
+  if (t && t.review) {
+    for (const k of keys) delete t.review[k]
+    if (!Object.keys(t.review).length) delete t.review
+  }
+  await api.saveContractReview(currentId.value, base)
+  reviewData.value = base
+}
+async function cancelReview(e, mode) {
+  const label = mode === 'first' ? '初审' : '审核'
+  try {
+    await ElMessageBox.confirm(`确认取消该条目的${label}标记？`, '取消确认', { type: 'warning' })
+  } catch { return }
+  try {
+    const keys = mode === 'first'
+      ? ['firstReviewer', 'firstReviewTime', 'firstRemark']
+      : ['reviewer', 'reviewTime', 'reviewRemark']
+    await removeReviewFields(entryKey(e), keys)
+    ElMessage.success(`已取消${label}`)
+  } catch (err) { ElMessage.error(err.message) }
+}
 const reviewDialog = ref(false)
 const reviewMode = ref('first')
 const reviewTarget = ref(null)
@@ -561,8 +596,8 @@ function openReview(row, mode) {
   reviewTarget.value = entryKey(row)
   reviewMode.value = mode
   reviewForm.value = mode === 'first'
-    ? { firstReviewer: row.review?.firstReviewer || '', firstReviewTime: row.review?.firstReviewTime || nowStr(), remark: row.review?.remark || '' }
-    : { reviewer: row.review?.reviewer || '', reviewTime: row.review?.reviewTime || nowStr(), remark: row.review?.remark || '' }
+    ? { firstReviewer: row.review?.firstReviewer || '', firstReviewTime: row.review?.firstReviewTime || nowStr(), firstRemark: row.review?.firstRemark || '' }
+    : { reviewer: row.review?.reviewer || '', reviewTime: row.review?.reviewTime || nowStr(), reviewRemark: row.review?.reviewRemark || '' }
   reviewDialog.value = true
 }
 async function saveReviewMarkers(key, fields) {
@@ -649,6 +684,7 @@ watch(() => props.autoOpenId, async (id) => {
 .splitter { width: 6px; flex-shrink: 0; cursor: col-resize; background: transparent; border-radius: 3px; }
 .splitter:hover, .splitter:active { background: var(--border); }
 .err-detail { color: var(--match-bad); font-size: 12px; }
+.audit-disabled { opacity: .4; filter: grayscale(1); cursor: not-allowed; }
 .rtabs { height: 100%; display: flex; flex-direction: column; }
 .rtabs :deep(.el-tabs__content) { flex: 1; min-height: 0; }
 .rtabs :deep(.el-tab-pane) { height: 100%; }
