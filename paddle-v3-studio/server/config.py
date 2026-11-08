@@ -33,6 +33,7 @@ DEFAULTS = {
         "use_table_recognition": True,
         "review_confidence": 0.9,
         "min_confidence": 0.7,
+        "auto_parse_on_upload": False,
     },
     "display": {
         "show_contract_no": True,
@@ -144,6 +145,10 @@ SCHEMA = {
                  "help": {"作用": "把表格区域识别成 HTML 并提取明细行（合同明细校验依赖它）。",
                           "生效": "保存后下次解析时 get_pipeline 按开关重建流水线；关闭则 tables 为空。",
                           "选项": "开=识别表格（合同/明细场景）；关=只做版面+OCR，速度更快。"}},
+                {"key": "auto_parse_on_upload", "label": "上传后自动开启解析流水线", "type": "bool",
+                 "help": {"作用": "上传文件后是否立即自动跑解析流水线。",
+                          "生效": "上传接口实时读取；关闭则只入库不解析，需在详情页手动点「解析」。",
+                          "选项": "开=上传即解析；关（默认）=上传后手动解析。"}},
                 {"key": "review_confidence", "label": "高置信阈值（≥ 为高）", "type": "number", "min": 0, "max": 1, "step": 0.01,
                  "help": {"作用": "OCR 置信度 ≥ 此值判为「高置信」（绿）。",
                           "生效": "结果归一化时实时读取，决定三档分色与统计；须大于 min_confidence。",

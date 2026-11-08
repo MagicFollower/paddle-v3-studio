@@ -52,7 +52,7 @@
             </template>
             <el-icon class="help-icon"><QuestionFilled /></el-icon>
           </el-tooltip>
-          <el-button size="small" :icon="Refresh" @click="reparse" :disabled="busy">重新解析</el-button>
+          <el-button size="small" :icon="Refresh" @click="reparse" :disabled="busy">{{ current.status === 'parsed' ? '重新解析' : '解析' }}</el-button>
           <el-tooltip placement="top" effect="light">
             <template #content>
               <div class="help-tip">
@@ -174,6 +174,8 @@
         </div>
       </div>
       <el-empty v-else-if="current.status === 'parsing'" description="正在转换与识别…" class="panel empty" />
+      <el-empty v-else-if="current.status === 'uploaded'" description="尚未解析（自动解析已关闭）· 点击右上角「解析」开始识别" class="panel empty" />
+      <el-empty v-else-if="current.status === 'failed'" description="解析失败 · 点击右上角「解析」重试" class="panel empty" />
     </div>
     <el-empty v-else description="上传或选择一个合同条目" class="panel empty" />
   </div>

@@ -160,8 +160,10 @@ async def upload_document(file: UploadFile = File(...)):
     store.UPLOADS.mkdir(parents=True, exist_ok=True)
     (store.UPLOADS / disk_name).write_bytes(data)
     store.add_document(doc_id, file.filename or "unnamed", mime, width, height, len(data), disk_name)
-    job = jobs.start_image_job(doc_id)
-    return {"id": doc_id, "jobId": job["id"], "width": width, "height": height}
+    auto = cfgmod.load_config()["parse"].get("auto_parse_on_upload", False)
+    job = jobs.start_image_job(doc_id) if auto else None
+    return {"id": doc_id, "jobId": job["id"] if job else None,
+            "width": width, "height": height, "autoParsed": bool(auto)}
 
 
 @app.get("/api/documents/{doc_id}")
@@ -280,12 +282,13 @@ async def upload_contract(file: UploadFile = File(...)):
     work.mkdir(parents=True, exist_ok=True)
     disk_name = f"original{ext}"
     (work / disk_name).write_bytes(data)
+    auto = cfgmod.load_config()["parse"].get("auto_parse_on_upload", False)
     entry = {"id": cid, "name": name, "ext": ext, "size": len(data), "diskName": disk_name,
-             "uploadedAt": store._now(), "status": "parsing", "pageCount": 0,
+             "uploadedAt": store._now(), "status": "parsing" if auto else "uploaded", "pageCount": 0,
              "contractNo": None, "verifyStatus": None}
     store.add_contract(entry)
-    job = jobs.start_contract_job(cid)
-    return {"id": cid, "jobId": job["id"]}
+    job = jobs.start_contract_job(cid) if auto else None
+    return {"id": cid, "jobId": job["id"] if job else None, "autoParsed": bool(auto)}
 
 
 @app.get("/api/contracts/{contract_id}")

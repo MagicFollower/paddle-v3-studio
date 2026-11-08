@@ -78,7 +78,7 @@
               </el-tab-pane>
             </el-tabs>
             <div class="right-foot">
-              <el-button size="small" :icon="Refresh" @click="reparse" :disabled="!!activeJob">重新解析</el-button>
+              <el-button size="small" :icon="Refresh" @click="reparse" :disabled="!!activeJob">{{ current?.parsed ? '重新解析' : '解析' }}</el-button>
               <el-button size="small" :icon="Delete" type="danger" plain @click="removeDoc" :disabled="!!activeJob">删除</el-button>
               <span class="muted" v-if="result?.timings">推理 {{ result.timings.predictMs }} ms · {{ result.device?.toUpperCase() }}</span>
             </div>
@@ -134,7 +134,7 @@ async function doUpload({ file }) {
   uploading.value = true
   try {
     const r = await api.uploadImage(file)
-    ElMessage.success('上传成功，已开始解析')
+    ElMessage.success(r?.autoParsed ? '上传成功，已开始解析' : '上传成功（自动解析已关闭，请点「解析」）')
     await loadDocs()
     await openDoc({ id: r.id })
   } catch (e) { ElMessage.error(e.message) } finally { uploading.value = false }

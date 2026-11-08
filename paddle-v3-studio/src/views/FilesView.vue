@@ -130,10 +130,13 @@ async function doUpload({ file }) {
   uploading.value = true
   try {
     const ext = (file.name.split('.').pop() || '').toLowerCase()
-    if (['png', 'jpg', 'jpeg', 'bmp', 'webp'].includes(ext)) await api.uploadImage(file)
-    else if (['docx', 'doc', 'pdf'].includes(ext)) await api.uploadContract(file)
+    let r
+    if (['png', 'jpg', 'jpeg', 'bmp', 'webp'].includes(ext)) r = await api.uploadImage(file)
+    else if (['docx', 'doc', 'pdf'].includes(ext)) r = await api.uploadContract(file)
     else { ElMessage.error(`不支持的文件类型：.${ext}`); return }
-    ElMessage.success(`「${file.name}」上传成功，已开始解析`)
+    ElMessage.success(r?.autoParsed
+      ? `「${file.name}」上传成功，已开始解析`
+      : `「${file.name}」上传成功（自动解析已关闭，请在详情页手动解析）`)
     fetchEntries()
   } catch (e) { ElMessage.error(e.message) } finally { uploading.value = false }
 }

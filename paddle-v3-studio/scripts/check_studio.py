@@ -118,6 +118,13 @@ def main():
         check("A5 四个模型本地就位", s == 200 and models_present, json.dumps({k: v["present"] for k, v in j.get("models", {}).items()}))
         check("A6 设备信息如实（gpu/cpu+原因）", dev.get("device") in ("gpu", "cpu") and "paddle_version" in dev,
               f"device={dev.get('device')} fallback={dev.get('fallback')}")
+        check("A7 自动解析默认关闭", cfg["parse"].get("auto_parse_on_upload") is False)
+        img0 = (FIX / "upload-sample.png").read_bytes()
+        s, _, j0 = req("POST", "/api/documents", form={"file": ("noauto.png", img0, "image/png")})
+        check("A8 关闭时上传不起任务", s == 201 and j0.get("jobId") is None and j0.get("autoParsed") is False, str(j0)[:80])
+        req("DELETE", f"/api/documents/{j0.get('id')}")
+        # 后续 B/C 段需要自动解析，临时开启
+        req("POST", "/api/config", {"parse": {"auto_parse_on_upload": True}})
 
         # ---------- B 图片真解析 ----------
         s, _, _ = req("POST", "/api/documents", form={"file": ("evil.txt", b"not an image", "text/plain")})
