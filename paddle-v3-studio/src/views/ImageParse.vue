@@ -3,7 +3,7 @@
     <div class="side panel">
       <div class="side-head">
         <el-upload :show-file-list="false" :http-request="doUpload" accept=".png,.jpg,.jpeg,.bmp,.webp">
-          <el-button type="primary" :icon="Upload" :loading="uploading" size="small">上传图片</el-button>
+          <el-button type="primary" :icon="Upload" :loading="uploading" :disabled="uploading" size="small">上传图片</el-button>
         </el-upload>
         <el-input v-model="q" size="small" placeholder="搜索文件名" clearable :prefix-icon="Search" @input="loadDocs" />
       </div>
@@ -79,7 +79,7 @@
             </el-tabs>
             <div class="right-foot">
               <el-button size="small" :icon="Refresh" @click="reparse" :disabled="!!activeJob">重新解析</el-button>
-              <el-button size="small" :icon="Delete" type="danger" plain @click="removeDoc">删除</el-button>
+              <el-button size="small" :icon="Delete" type="danger" plain @click="removeDoc" :disabled="!!activeJob">删除</el-button>
               <span class="muted" v-if="result?.timings">推理 {{ result.timings.predictMs }} ms · {{ result.device?.toUpperCase() }}</span>
             </div>
           </div>
@@ -156,30 +156,33 @@ async function openDoc(d) {
 
 function watchJob() {
   clearInterval(poll)
-  poll = setInterval(async () => {
+  const self = setInterval(async () => {
+    if (poll !== self) { clearInterval(self); return }   // 已被新轮询取代
     if (!currentId.value) return
     try {
       const jobs = (await api.jobs(currentId.value)).items
       const j = jobs[0]
-      if (!j) return
+      if (!j || poll !== self) return
       job.value = j
       if (j.status === 'done') {
-        clearInterval(poll)
+        clearInterval(self)
         result.value = await api.result(currentId.value)
         current.value.parsed = true
         await loadDocs()
       } else if (j.status === 'failed') {
-        clearInterval(poll)
+        clearInterval(self)
         await loadDocs()
       }
     } catch {}
   }, 1200)
+  poll = self
 }
 
 async function reparse() {
   try {
-    await api.parse(currentId.value)
+    const r = await api.parse(currentId.value)
     result.value = null
+    job.value = { id: r.jobId, status: 'queued', progress: 0, stages: [] }
     watchJob()
   } catch (e) { ElMessage.error(e.message) }
 }

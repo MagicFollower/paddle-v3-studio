@@ -39,6 +39,7 @@ DEFAULTS = {
         "show_contract_table": True,
         "show_layout": False,
         "show_ocr": False,
+        "default_zoom": 60,
         "colors": dict(DEFAULT_COLORS),
     },
     "model": {
@@ -113,6 +114,8 @@ def validate_config(patch: dict) -> list:
     for k, v in (merged["display"].get("colors") or {}).items():
         if not hexcolor.match(str(v)):
             errs.append(f"颜色 {k} 必须是 #RGB 或 #RRGGBB 格式")
+    if not (20 <= merged["display"].get("default_zoom", 60) <= 400):
+        errs.append("default_zoom 必须在 20~400")
     return errs
 
 
@@ -166,6 +169,10 @@ SCHEMA = {
                 {"key": "show_ocr", "label": "OCR 文本框", "type": "bool",
                  "help": {"作用": "叠加 OCR 文本框（按置信度三档着色）。",
                           "生效": "前端实时读取，默认关。", "选项": "开/关。"}},
+                {"key": "default_zoom", "label": "页面默认缩放级别（%）", "type": "number", "min": 20, "max": 400, "step": 5,
+                 "help": {"作用": "页图区域打开时的初始缩放百分比。",
+                          "生效": "下次打开页图时作为初始缩放；仍可用工具栏 +/- 与适应窗口调整。",
+                          "选项": "20~400，默认 60（即 60%）。"}},
                 {"key": "colors", "label": "区域与匹配配色", "type": "colors", "options": COLOR_FIELDS,
                  "help": {"作用": "自定义各区域框选与校验匹配的颜色。",
                           "生效": "保存后经 CSS 变量全局实时生效；每项可单独还原默认。",

@@ -74,7 +74,8 @@ Vue 3 + Element Plus 前端（固定版本 vue 3.5.44 / element-plus 2.14.7 / vi
   `show-pagination` 开关控制分页器显隐（隐藏则不使用分页），`page-sizes` 可配。
 
 后端 `GET /api/entries` 统一返回两类条目，支持 `q/dateFrom/dateTo/parsed/verify/type`
-过滤 + `page/pageSize` 分页。
+过滤 + `page/pageSize` 分页。`display.default_zoom`（默认 60）控制页图初始缩放；
+解析/重新解析/重新校验/删除/上传等按钮在处理中统一置灰不可点。
 
 ## 离线纪律（与 MODEL/offline 同款）
 

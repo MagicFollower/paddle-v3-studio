@@ -3,7 +3,7 @@
     <div class="side panel">
       <div class="side-head">
         <el-upload :show-file-list="false" :http-request="doUpload" accept=".docx,.doc,.pdf">
-          <el-button type="primary" :icon="Upload" :loading="uploading" size="small">上传合同 docx/pdf</el-button>
+          <el-button type="primary" :icon="Upload" :loading="uploading" :disabled="busy" size="small">上传合同 docx/pdf</el-button>
         </el-upload>
         <div class="muted">一个文件 = 一个条目，逐页转图识别</div>
       </div>
@@ -41,9 +41,9 @@
           <el-tag v-if="current.verifyStatus" :type="VERIFY_TYPE[current.verifyStatus] || 'info'">
             {{ VERIFY_LABEL[current.verifyStatus] || current.verifyStatus }}
           </el-tag>
-          <el-button size="small" :icon="Refresh" @click="reverify" :loading="reverifying">重新校验</el-button>
-          <el-button size="small" :icon="Refresh" @click="reparse">重新解析</el-button>
-          <el-button size="small" :icon="Delete" type="danger" plain @click="removeContract">删除</el-button>
+          <el-button size="small" :icon="Refresh" @click="reverify" :loading="reverifying" :disabled="busy">重新校验</el-button>
+          <el-button size="small" :icon="Refresh" @click="reparse" :disabled="busy">重新解析</el-button>
+          <el-button size="small" :icon="Delete" type="danger" plain @click="removeContract" :disabled="busy">删除</el-button>
         </div>
       </div>
 
@@ -197,6 +197,10 @@ const stageLabel = computed(() => {
   const s = job.value?.stages?.find(x => x.key === job.value?.stage)
   return s?.label || job.value?.stage || ''
 })
+const busy = computed(() =>
+  (!!job.value && ['queued', 'running'].includes(job.value.status))
+  || current.value?.status === 'parsing'
+  || uploading.value)
 
 async function loadContracts() {
   try { contracts.value = (await api.contracts()).items } catch { contracts.value = [] }
@@ -227,23 +231,26 @@ async function openContract(c) {
 
 function watchJob() {
   clearInterval(poll)
-  poll = setInterval(async () => {
+  const self = setInterval(async () => {
+    if (poll !== self) { clearInterval(self); return }   // 已被新轮询取代
     if (!currentId.value) return
     try {
       const j = (await api.jobs(currentId.value)).items[0]
-      if (!j) return
+      if (!j || poll !== self) return
       job.value = j
       current.value = await api.contract(currentId.value)
+      if (poll !== self) return
       if (j.status === 'done') {
-        clearInterval(poll)
+        clearInterval(self)
         payload.value = await api.contractResult(currentId.value)
         await loadContracts()
       } else if (j.status === 'failed') {
-        clearInterval(poll)
+        clearInterval(self)
         await loadContracts()
       }
     } catch {}
   }, 1500)
+  poll = self
 }
 
 async function reverify() {
@@ -259,9 +266,10 @@ async function reverify() {
 
 async function reparse() {
   try {
-    await api.reparseContract(currentId.value)
+    const r = await api.reparseContract(currentId.value)
     payload.value = null
     current.value.status = 'parsing'
+    job.value = { id: r.jobId, status: 'queued', progress: 0, stages: [] }
     watchJob()
   } catch (e) { ElMessage.error(e.message) }
 }

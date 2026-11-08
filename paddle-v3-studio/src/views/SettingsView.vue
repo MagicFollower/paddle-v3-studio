@@ -47,7 +47,7 @@
             {{ source?.reachable ? '在线' : '不可达' }}
           </el-tag>
           <span class="mono muted">{{ cfgForm.contract?.source_url }}</span>
-          <el-button size="small" :icon="Refresh" @click="testSource">测试连接</el-button>
+          <el-button size="small" :icon="Refresh" :loading="testing" @click="testSource">测试连接</el-button>
         </div>
         <div class="muted" v-if="source && !source.reachable" style="margin-top:6px">{{ source.hint }} · {{ source.error }}</div>
       </div>
@@ -107,6 +107,7 @@ const source = ref(null)
 const cfgForm = reactive({ parse: {}, model: {}, contract: {} })
 const saving = ref(false)
 const probing = ref(false)
+const testing = ref(false)
 
 const dev = computed(() => status.value?.device)
 const modelRows = computed(() => {
@@ -127,9 +128,12 @@ async function checkSource() {
 }
 
 async function testSource() {
-  await checkSource()
-  if (source.value?.reachable) ElMessage.success('合同数据源连接成功')
-  else ElMessage.error(`合同数据源连接失败：${source.value?.error || '不可达'}（先启动 contract-source）`)
+  testing.value = true
+  try {
+    await checkSource()
+    if (source.value?.reachable) ElMessage.success('合同数据源连接成功')
+    else ElMessage.error(`合同数据源连接失败：${source.value?.error || '不可达'}（先启动 contract-source）`)
+  } finally { testing.value = false }
 }
 
 async function reprobe() {

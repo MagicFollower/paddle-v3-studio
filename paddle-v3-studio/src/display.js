@@ -28,6 +28,7 @@ export const display = reactive({
   show_contract_table: true,
   show_layout: false,
   show_ocr: false,
+  default_zoom: 60,
   colors: { ...DEFAULT_COLORS },
 })
 
@@ -47,6 +48,7 @@ export async function loadDisplay() {
       display.show_contract_table = d.show_contract_table
       display.show_layout = d.show_layout
       display.show_ocr = d.show_ocr
+      display.default_zoom = d.default_zoom ?? 60
       display.colors = { ...DEFAULT_COLORS, ...(d.colors || {}) }
       applyColors(display.colors)
     }

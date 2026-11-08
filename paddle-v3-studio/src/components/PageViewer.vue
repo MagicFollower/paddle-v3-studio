@@ -54,6 +54,7 @@
 import { computed, ref } from 'vue'
 import { ZoomIn, ZoomOut } from '@element-plus/icons-vue'
 import { bboxStyle, polyStyle } from '../utils.js'
+import { display } from '../display.js'
 
 const props = defineProps({
   src: String, width: Number, height: Number,
@@ -66,8 +67,8 @@ const props = defineProps({
 })
 defineEmits(['select'])
 
-const zoom = ref(1)
-const fit = ref(true)
+const zoom = ref((display.default_zoom ?? 60) / 100)
+const fit = ref(false)
 const stageRef = ref(null)
 const stageW = ref(800)
 
