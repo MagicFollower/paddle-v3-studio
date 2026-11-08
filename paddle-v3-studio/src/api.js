@@ -34,6 +34,8 @@ export const api = {
   parse: (docId) => req('POST', '/api/parse', { docId }),
   jobs: (refId = '') => req('GET', `/api/jobs?refId=${encodeURIComponent(refId)}`),
   job: (id) => req('GET', `/api/jobs/${id}`),
+  queue: () => req('GET', '/api/queue'),
+  cancelJob: (id) => req('POST', `/api/jobs/${id}/cancel`, {}),
   contracts: () => req('GET', '/api/contracts'),
   entries: (params = {}) => {
     const qs = new URLSearchParams()

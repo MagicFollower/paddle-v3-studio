@@ -247,6 +247,34 @@ def get_job(job_id: str):
     return j
 
 
+@app.get("/api/queue")
+def queue():
+    """待解析队列（queued+running），FIFO 提交序，关联条目文件名/类型。"""
+    items = []
+    for j in jobs.list_jobs():
+        if j["status"] not in ("queued", "running"):
+            continue
+        if j["kind"] == "contract":
+            e = store.get_contract(j["refId"]) or {}
+            etype = "contract"
+        else:
+            e = store.get_document(j["refId"]) or {}
+            etype = "image"
+        items.append({**j, "name": e.get("name"), "type": etype})
+    items.sort(key=lambda x: x["createdAt"])
+    for i, it in enumerate(items):
+        it["position"] = i + 1
+    return {"items": items, "total": len(items)}
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+def cancel_job(job_id: str):
+    j = jobs.cancel_job(job_id)
+    if not j:
+        raise HTTPException(404, "任务不存在")
+    return j
+
+
 @app.get("/api/stages")
 def stages():
     return {"image": jobs.IMAGE_STAGES, "contract": jobs.CONTRACT_STAGES}
@@ -261,7 +289,10 @@ def list_contracts():
 
 @app.get("/api/entries")
 def query_entries(request: Request):
-    return store.query_entries(dict(request.query_params))
+    res = store.query_entries(dict(request.query_params))
+    for e in res["items"]:
+        e["parsing"] = jobs.active_job_for(e["id"]) is not None
+    return res
 
 
 @app.post("/api/contracts/upload", status_code=201)

@@ -11,6 +11,12 @@
     <ContentGrid :columns="columns" :data="data" :loading="loading" :total="total"
       v-model:page="page" v-model:page-size="pageSize" :page-sizes="[10, 15, 30, 50, 100, 200]"
       :actions="actions" :action-width="140" index @page-change="onPageChange">
+      <template #name="{ row }">
+        <span class="f-name">{{ row.name }}</span>
+        <span v-if="row.parsing" class="parse-mark">
+          <el-icon class="spin"><Loading /></el-icon>正在解析
+        </span>
+      </template>
       <template #type="{ row }">
         <el-tag size="small" :type="row.type === 'contract' ? 'warning' : 'info'" effect="plain">
           {{ row.type === 'contract' ? '合同' : '图片' }}
@@ -32,9 +38,9 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Upload } from '@element-plus/icons-vue'
+import { Upload, Loading } from '@element-plus/icons-vue'
 import { api } from '../api.js'
 import { formatBytes, VERIFY_LABEL, VERIFY_TYPE } from '../utils.js'
 import QueryBuilder from '../components/QueryBuilder.vue'
@@ -66,7 +72,7 @@ const queryFields = [
 ]
 
 const columns = [
-  { key: 'name', label: '文件名', minWidth: 200 },
+  { key: 'name', label: '文件名', minWidth: 200, slot: 'name', showOverflowTooltip: false },
   { key: 'ext', label: '扩展名', width: 80 },
   { key: 'size', label: '大小', width: 100, formatter: (v) => formatBytes(v) },
   { key: 'pageCount', label: '页数', width: 70, align: 'center' },
@@ -94,13 +100,32 @@ function buildParams() {
   return p
 }
 
-async function fetchEntries() {
-  loading.value = true
+// ===== 「正在解析」标记自动消失的轮询机制说明 =====
+// 本 Grid 的数据来自后端分页接口 GET /api/entries（携带当前 page/pageSize/过滤条件）。
+// 因此只要列表中仍存在 parsing=true 的条目，syncPoll 就每 2s 调一次 fetchEntries(true)，
+// 也就是每 2s 向后端重发一次「分页查询」请求，并用返回结果整表替换 data：
+// 解析状态与文件名后的「正在解析」标记由此跟随后端实时刷新，解析完成后标记自动消失。
+// 代价：解析期间每 2s 产生一个分页请求（请求数 ≈ 解析时长 / 2s），属用简单轮询换实时性的取舍；
+// 若需降低请求量，可改为轮询轻量状态接口（如 /api/queue）仅在 parsing 集合变化时才重查分页，
+// 或改用 SSE/WebSocket 推送；当前实现优先保证简单与一致。
+// 当所有条目解析结束（anyParsing=false）时清除定时器、停止轮询，不再发送任何请求。
+let pollTimer = null
+function syncPoll() {
+  const anyParsing = data.value.some(d => d.parsing)
+  if (anyParsing && !pollTimer) pollTimer = setInterval(() => fetchEntries(true), 2000)
+  else if (!anyParsing && pollTimer) { clearInterval(pollTimer); pollTimer = null }
+}
+
+// silent=true 表示由轮询触发的静默刷新：复用同一条后端分页查询，但不置 loading，
+// 避免每 2s 的轮询造成表格 loading 遮罩闪烁；手动查询/翻页/上传仍走 silent=false。
+async function fetchEntries(silent = false) {
+  if (!silent) loading.value = true
   try {
     const r = await api.entries(buildParams())
     data.value = r.items
     total.value = r.total
-  } catch (e) { ElMessage.error(e.message) } finally { loading.value = false }
+    syncPoll()
+  } catch (e) { if (!silent) ElMessage.error(e.message) } finally { if (!silent) loading.value = false }
 }
 
 function onSearch(params) {
@@ -143,9 +168,14 @@ async function doUpload({ file }) {
 }
 
 onMounted(fetchEntries)
+onUnmounted(() => clearInterval(pollTimer))
 </script>
 
 <style scoped>
 .files-view { display: flex; flex-direction: column; gap: 10px; height: 100%; }
 .files-toolbar { display: flex; align-items: center; gap: 12px; }
+.f-name { word-break: break-all; }
+.parse-mark { display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; font-size: 12px; color: var(--review); white-space: nowrap; }
+.spin { animation: f-spin 1s linear infinite; }
+@keyframes f-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 </style>

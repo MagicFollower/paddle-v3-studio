@@ -73,6 +73,39 @@ def active_job_for(ref_id):
     return None
 
 
+class JobCancelled(Exception):
+    pass
+
+
+def _check_cancel(job):
+    if job.get("cancelRequested") or job["status"] == "cancelled":
+        raise JobCancelled()
+
+
+def _restore_ref(job):
+    if job["kind"] == "contract":
+        rid = job["refId"]
+        store.update_contract(rid, {"status": "parsed" if store.load_contract_result(rid) else "uploaded"})
+
+
+def _on_cancel(job):
+    job.update(status="cancelled", finishedAt=time.time())
+    _restore_ref(job)
+    _log(job, job.get("stage") or "prepare", "任务已取消")
+
+
+def cancel_job(job_id):
+    with _lock:
+        job = _jobs.get(job_id)
+    if not job:
+        return None
+    if job["status"] == "queued":
+        _on_cancel(job)
+    elif job["status"] == "running":
+        job["cancelRequested"] = True   # 协作式：工作线程在检查点退出
+    return dict(job)
+
+
 # ---------- 图片解析任务 ----------
 
 def start_image_job(doc_id: str) -> dict:
@@ -84,6 +117,8 @@ def start_image_job(doc_id: str) -> dict:
     def run():
         import device as devmod
         import pipeline
+        if job["status"] == "cancelled":
+            return
         job["status"] = "running"
         try:
             _log(job, "prepare", "探测设备并加载 PP-StructureV3 流水线")
@@ -97,7 +132,9 @@ def start_image_job(doc_id: str) -> dict:
             img_path = store.UPLOADS / doc["diskName"]
             _log(job, "predict", f"推理 {doc['name']}（{doc['width']}×{doc['height']}）")
             t0 = time.time()
+            _check_cancel(job)
             out = pipeline.predict_image(img_path)
+            _check_cancel(job)
             out["timings"] = {"predictMs": round((time.time() - t0) * 1000)}
             job["progress"] = 85
             _log(job, "persist", "写 data/parse 产物")
@@ -107,6 +144,8 @@ def start_image_job(doc_id: str) -> dict:
             job["status"] = "done"
             job["finishedAt"] = time.time()
             _log(job, "persist", f"完成：版面 {out['counts']['layout']} 块 / OCR {out['counts']['ocr']} 行 / 表格 {out['counts']['tables']} 个")
+        except JobCancelled:
+            _on_cancel(job)
         except PipelineError as e:
             _fail(job, e.code, str(e), e.hint)
         except Exception as e:
@@ -130,6 +169,8 @@ def start_contract_job(contract_id: str) -> dict:
         import device as devmod
         import pipeline
         import verify
+        if job["status"] == "cancelled":
+            return
         job["status"] = "running"
         entry = store.get_contract(contract_id)
         work_dir = store.CONTRACTS / contract_id
@@ -149,6 +190,7 @@ def start_contract_job(contract_id: str) -> dict:
             pipeline.get_pipeline()
             page_results = []
             for i, pg in enumerate(pages):
+                _check_cancel(job)
                 _log(job, "predict", f"推理第 {pg['page']}/{len(pages)} 页")
                 out = pipeline.predict_image(work_dir / "pages" / pg["file"])
                 out.pop("raw", None)
@@ -172,6 +214,7 @@ def start_contract_job(contract_id: str) -> dict:
                          "crossPage": no_info["crossPage"], "tables": tables}
             job["progress"] = 78
 
+            _check_cancel(job)
             _log(job, "verify", "对照 Spring Boot 数据源校验")
             try:
                 report = verify.verify(extracted, cfg["contract"]["source_url"])
@@ -193,6 +236,8 @@ def start_contract_job(contract_id: str) -> dict:
             job["status"] = "done"
             job["finishedAt"] = time.time()
             _log(job, "persist", f"完成：合同号 {(no_info['found'] or {}).get('number') or '未识别'} / 校验 {report['status']}")
+        except JobCancelled:
+            _on_cancel(job)
         except PipelineError as e:
             store.update_contract(contract_id, {"status": "failed"})
             _fail(job, e.code, str(e), e.hint)
