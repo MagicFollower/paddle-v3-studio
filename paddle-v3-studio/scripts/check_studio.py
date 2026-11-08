@@ -237,6 +237,22 @@ def main():
                     rep2 = p.get("report", {})
                 check("C10 PDF 合同同样走通并 matched", ok and rep2.get("status") == "matched",
                       f"status={rep2.get('status')}")
+
+        # ---------- D 文件条目查询 ----------
+        s, _, e = req("GET", "/api/entries?page=1&pageSize=15")
+        check("D1 entries 默认分页", s == 200 and e["pageSize"] == 15 and len(e["items"]) <= 15 and "total" in e)
+        total = e["total"]
+        s, _, e2 = req("GET", "/api/entries?page=1&pageSize=10")
+        check("D2 每页条数切换", e2["pageSize"] == 10 and len(e2["items"]) <= 10)
+        s, _, em = req("GET", "/api/entries?verify=matched")
+        check("D3 校验状态过滤", all(x["verifyStatus"] == "matched" for x in em["items"]) and em["total"] <= total)
+        s, _, eq = req("GET", "/api/entries?q=HT-2026-001")
+        check("D4 合同号模糊查询", bool(eq["items"]) and all("HT-2026-001" in (x["contractNo"] or "") for x in eq["items"]))
+        s, _, ep = req("GET", "/api/entries?parsed=true")
+        check("D5 已解析过滤", all(x["parsed"] for x in ep["items"]))
+        s, _, big = req("GET", "/api/entries?page=1&pageSize=200")
+        check("D6 大页返回全部", len(big["items"]) == big["total"])
+        check("D7 条目字段齐全", all(all(k in x for k in ("id", "name", "size", "ext", "pageCount", "uploadedAt", "type")) for x in big["items"]))
         return finish()
     finally:
         server.terminate()

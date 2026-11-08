@@ -163,3 +163,60 @@ def load_contract_result(contract_id: str):
 def _now() -> str:
     from datetime import datetime, timezone
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+
+
+# ---------- 统一文件条目查询（图片 + 合同）----------
+
+def all_entries() -> list:
+    entries = []
+    for c in list_contracts():
+        entries.append({
+            "id": c["id"], "name": c["name"], "size": c.get("size"),
+            "ext": (c.get("ext") or "").lstrip("."), "type": "contract",
+            "pageCount": c.get("pageCount", 0), "uploadedAt": c.get("uploadedAt"),
+            "contractNo": c.get("contractNo"), "parsed": c.get("status") == "parsed",
+            "verifyStatus": c.get("verifyStatus"),
+        })
+    for d in list_documents():
+        entries.append({
+            "id": d["id"], "name": d["name"], "size": d.get("size"),
+            "ext": Path(d["diskName"]).suffix.lstrip("."), "type": "image",
+            "pageCount": 1, "uploadedAt": d.get("uploadedAt"),
+            "contractNo": None, "parsed": bool(d.get("parsed")), "verifyStatus": None,
+        })
+    return entries
+
+
+def query_entries(params: dict) -> dict:
+    entries = all_entries()
+    q = (params.get("q") or "").strip().lower()
+    if q:
+        entries = [e for e in entries if e["contractNo"] and q in e["contractNo"].lower()]
+    date_from = params.get("dateFrom")
+    date_to = params.get("dateTo")
+    if date_from:
+        entries = [e for e in entries if (e["uploadedAt"] or "") >= date_from]
+    if date_to:
+        entries = [e for e in entries if (e["uploadedAt"] or "")[:10] <= date_to]
+    parsed = params.get("parsed")
+    if parsed in ("true", True, "1"):
+        entries = [e for e in entries if e["parsed"]]
+    elif parsed in ("false", False, "0"):
+        entries = [e for e in entries if not e["parsed"]]
+    verify = params.get("verify")
+    if verify:
+        wanted = {v for v in verify.split(",") if v}
+        entries = [e for e in entries if e["verifyStatus"] in wanted]
+    etype = params.get("type")
+    if etype in ("contract", "image"):
+        entries = [e for e in entries if e["type"] == etype]
+    entries.sort(key=lambda e: e["uploadedAt"] or "", reverse=True)
+    total = len(entries)
+    try:
+        page = max(1, int(params.get("page", 1)))
+        page_size = max(1, min(500, int(params.get("pageSize", 15))))
+    except (TypeError, ValueError):
+        page, page_size = 1, 15
+    start = (page - 1) * page_size
+    return {"items": entries[start:start + page_size], "total": total,
+            "page": page, "pageSize": page_size}

@@ -257,6 +257,11 @@ def list_contracts():
     return {"items": store.list_contracts()}
 
 
+@app.get("/api/entries")
+def query_entries(request: Request):
+    return store.query_entries(dict(request.query_params))
+
+
 @app.post("/api/contracts/upload", status_code=201)
 async def upload_contract(file: UploadFile = File(...)):
     name = store.safe_name(file.filename or "contract")

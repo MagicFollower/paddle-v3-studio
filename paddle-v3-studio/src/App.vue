@@ -21,6 +21,7 @@
     <el-container class="body">
       <el-aside width="168px" class="nav panel">
         <el-menu :default-active="view" @select="view = $event">
+          <el-menu-item index="files"><el-icon><Folder /></el-icon>文件条目</el-menu-item>
           <el-menu-item index="images"><el-icon><Picture /></el-icon>图片解析</el-menu-item>
           <el-menu-item index="contracts"><el-icon><Document /></el-icon>合同校验</el-menu-item>
           <el-menu-item index="settings"><el-icon><Setting /></el-icon>系统设置</el-menu-item>
@@ -30,8 +31,9 @@
         </div>
       </el-aside>
       <el-main class="main">
-        <ImageParse v-if="view === 'images'" />
-        <ContractCheck v-else-if="view === 'contracts'" />
+        <FilesView v-if="view === 'files'" @open="openEntry" />
+        <ImageParse v-else-if="view === 'images'" :auto-open-id="openId" @opened="openId = null" />
+        <ContractCheck v-else-if="view === 'contracts'" :auto-open-id="openId" @opened="openId = null" />
         <SettingsView v-else />
       </el-main>
     </el-container>
@@ -40,17 +42,24 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { Picture, Document, Setting, Refresh } from '@element-plus/icons-vue'
+import { Picture, Document, Setting, Refresh, Folder } from '@element-plus/icons-vue'
 import { api } from './api.js'
 import { loadDisplay } from './display.js'
+import FilesView from './views/FilesView.vue'
 import ImageParse from './views/ImageParse.vue'
 import ContractCheck from './views/ContractCheck.vue'
 import SettingsView from './views/SettingsView.vue'
 
-const view = ref('images')
+const view = ref('files')
+const openId = ref(null)
 const dead = ref(false)
 const modelStatus = ref(null)
 let timer = null
+
+function openEntry({ type, id }) {
+  openId.value = id
+  view.value = type === 'contract' ? 'contracts' : 'images'
+}
 
 const deviceLabel = computed(() => {
   const d = modelStatus.value?.device

@@ -160,7 +160,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Upload, Refresh, Delete, CircleCheck, CircleClose } from '@element-plus/icons-vue'
 import { api } from '../api.js'
@@ -277,6 +277,10 @@ async function removeContract() {
 
 onMounted(loadContracts)
 onUnmounted(() => clearInterval(poll))
+
+const props = defineProps({ autoOpenId: { type: String, default: null } })
+const emit = defineEmits(['opened'])
+watch(() => props.autoOpenId, (id) => { if (id) { openContract({ id }); emit('opened') } }, { immediate: true })
 </script>
 
 <style scoped>

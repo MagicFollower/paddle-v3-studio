@@ -35,6 +35,13 @@ export const api = {
   jobs: (refId = '') => req('GET', `/api/jobs?refId=${encodeURIComponent(refId)}`),
   job: (id) => req('GET', `/api/jobs/${id}`),
   contracts: () => req('GET', '/api/contracts'),
+  entries: (params = {}) => {
+    const qs = new URLSearchParams()
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined && v !== null && v !== '') qs.set(k, Array.isArray(v) ? v.join(',') : v)
+    }
+    return req('GET', `/api/entries?${qs.toString()}`)
+  },
   uploadContract: (file) => { const f = new FormData(); f.append('file', file); return req('POST', '/api/contracts/upload', f, true) },
   contract: (id) => req('GET', `/api/contracts/${id}`),
   contractResult: (id) => req('GET', `/api/contracts/${id}/result`),

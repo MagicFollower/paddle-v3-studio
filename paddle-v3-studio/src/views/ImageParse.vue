@@ -91,7 +91,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Upload, Search, Refresh, Delete } from '@element-plus/icons-vue'
 import { api } from '../api.js'
@@ -195,6 +195,10 @@ async function removeDoc() {
 
 onMounted(async () => { await loadCfg(); await loadDocs() })
 onUnmounted(() => clearInterval(poll))
+
+const props = defineProps({ autoOpenId: { type: String, default: null } })
+const emit = defineEmits(['opened'])
+watch(() => props.autoOpenId, (id) => { if (id) { openDoc({ id }); emit('opened') } }, { immediate: true })
 </script>
 
 <style scoped>

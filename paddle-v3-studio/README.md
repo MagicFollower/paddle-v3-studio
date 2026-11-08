@@ -54,6 +54,28 @@ Vue 3 + Element Plus 前端（固定版本 vue 3.5.44 / element-plus 2.14.7 / vi
 - 设备「重新探测」自检前会 `paddle.disable_static()`，避免推理后静态图导致 `.numpy()`
   误报 GPU 降级；合同数据源「测试连接」给出成功/失败提示。
 
+## 文件条目 Tab 与通用组件
+
+默认首页「文件条目」是统一的上传文件查询台（图片 + 合同），上下布局：
+
+- **上·查询区**（[`QueryBuilder.vue`](src/components/QueryBuilder.vue)）：上传时间范围、
+  合同号模糊、文件类型、解析状态、校验结果（完全匹配/明细不符/合同号不存在/未识别号，
+  多选）；右下角「查询/重置」，**重置只清空条件、不触发重查询**。
+- **下·内容区**（[`ContentGrid.vue`](src/components/ContentGrid.vue)）：文件名/扩展名/大小/
+  页数/类型/合同号/校验/上传时间，右侧固定栏「详情/删除」；详情跳到对应解析界面，
+  删除需确认。分页器右下角，默认每页 15，可切 10/15/30/50/100/200。
+
+两个组件高可配置：
+
+- `QueryBuilder` 字段类型支持 `text / number / select / multiselect / radio / checkbox /
+  daterange / api-select / map-select`；`api-select` 调接口取 JSON 列表，按 `idKey`(value1)
+  为值、`labelKey`(value2) 为显示；`map-select` 用固定 `{id:name}` Map。
+- `ContentGrid` 列由 `columns` 配置（宽/对齐/formatter/插槽），`actions` 配置固定操作栏，
+  `show-pagination` 开关控制分页器显隐（隐藏则不使用分页），`page-sizes` 可配。
+
+后端 `GET /api/entries` 统一返回两类条目，支持 `q/dateFrom/dateTo/parsed/verify/type`
+过滤 + `page/pageSize` 分页。
+
 ## 离线纪律（与 MODEL/offline 同款）
 
 - **安装阶段联网，运行时零联网**：`scripts\setup.cmd` 一次性装依赖并把流水线全部
