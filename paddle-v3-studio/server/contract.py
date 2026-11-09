@@ -403,7 +403,24 @@ def table_to_entries(html: str, fallback: dict = None, cells=None) -> dict:
         data_iter = list(enumerate(grid))
     else:
         headers = [str(c) if c is not None else "" for c in grid[header_idx]]
-        data_iter = list(enumerate(grid))[header_idx + 1:]
+        data_start = header_idx + 1
+        # 多行表头快修：表头含 colspan 重复的分组标签（如「数量信息」占两列），且紧随一行是细化
+        # 子表头（在分组列上给出「数量/单位」等列 hints）→ 用子表头回填分组列、重建 colmap、跳过子表头行。
+        dup = {h for h in headers if h and headers.count(h) > 1}
+        if dup and header_idx + 1 < len(grid):
+            sub = grid[header_idx + 1]
+            sub_hint_cols = {j: _match_col(c) for j, c in enumerate(sub) if _match_col(c)}
+            if any(j < len(headers) and headers[j] in dup for j in sub_hint_cols):
+                for j in sub_hint_cols:
+                    if j < len(headers) and headers[j] in dup and sub[j]:
+                        headers[j] = str(sub[j]).strip()
+                colmap = {}
+                for j, h in enumerate(headers):
+                    k = _match_col(h)
+                    if k and k not in colmap:
+                        colmap[k] = j
+                data_start = header_idx + 2
+        data_iter = list(enumerate(grid))[data_start:]
     vrows = _group_cell_rows(cells)
     use_cells = bool(vrows) and len(vrows) == len(grid)
     entries, total_row = [], None
@@ -412,6 +429,14 @@ def table_to_entries(html: str, fallback: dict = None, cells=None) -> dict:
             j = colmap.get(key)
             return row[j] if j is not None and j < len(row) else None
         joined = "".join(str(c or "") for c in row)
+        # 分节表快修：全宽合并的分类/标题行（colspan 填满，所有非空单元格同值，如「一、办公设备」）跳过，
+        # 避免被当成明细条目污染。
+        non_empty = [str(c).strip() for c in row if c is not None and str(c).strip()]
+        if len(non_empty) >= 2 and len(set(non_empty)) == 1:
+            continue
+        # 分节「小计」行跳过（不是整表合计，不设为 totalRow，也不当明细）
+        if re.search(r"小\s*计", joined):
+            continue
         if re.search(r"合\s*计|总\s*计|总\s*金\s*额|合\s*同\s*总\s*价", joined):
             total_row = {"text": joined, "amount": _num(get("amount"))}
             continue

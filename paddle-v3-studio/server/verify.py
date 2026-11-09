@@ -207,11 +207,17 @@ def verify(extracted: dict, source_url: str, mapped: dict = None) -> dict:
         if t.get("totalRow") and t["totalRow"].get("amount") is not None:
             ocr_total = t["totalRow"]["amount"]
     if total_src is not None:
-        ok = ocr_total is not None and abs(float(total_src) - ocr_total) <= tol
-        check("total_amount", "合同总金额一致", ok,
-              f"文件 {ocr_total} / 数据源 {total_src}")
-        if not ok:
-            mismatch += 1
+        if ocr_total is None:
+            # 未识别到合计行（不规则表格常无独立合计行）：不据此判不符，仅留痕跳过总额比对，
+            # 避免「没有合计行」被误判为「总额不一致」。明细逐行比对仍是硬判据。
+            check("total_amount", "合同总金额一致", True,
+                  f"文件未识别到合计行，跳过总额比对（数据源 {total_src}）")
+        else:
+            ok = abs(float(total_src) - ocr_total) <= tol
+            check("total_amount", "合同总金额一致", ok,
+                  f"文件 {ocr_total} / 数据源 {total_src}")
+            if not ok:
+                mismatch += 1
 
     failed = [c for c in report["checks"] if not c["ok"]]
     field_bad = any(not f["ok"] for r in report["itemComparison"] for f in r["fields"])

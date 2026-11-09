@@ -10,6 +10,7 @@
 值的键名重写由 fieldmap.transform 确定性完成，跨页 200+ 明细不丢行不改值。
 """
 import json
+import re
 import threading
 
 import requests
@@ -169,6 +170,70 @@ def recognize_headers(headers: list, mapping: dict) -> dict:
         if h not in hm and h in fallback:
             hm[h] = fallback[h]
     return hm
+
+
+_NUM_RE = re.compile(r"-?\d+(?:\.\d+)?")
+
+
+def _to_num(v):
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    m = _NUM_RE.search(str(v).replace(",", "").replace("，", ""))
+    return float(m.group()) if m else None
+
+
+# 不规则表格结构理解输出的业务字段 → 内部键/canonical 中文表头（与 table_to_entries 形状一致，下游复用）
+_TABLE_FIELDS = [
+    ("sortOrder", "no", "序号"), ("itemName", "name", "品名"), ("spec", "spec", "规格"),
+    ("unit", "unit", "单位"), ("quantity", "qty", "数量"), ("unitPrice", "price", "单价"),
+    ("amount", "amount", "金额"),
+]
+
+
+def understand_table(html: str, cells=None, mapping: dict = None) -> dict:
+    """LLM 表格结构理解兜底：启发式 table_to_entries 解析不出（键值对/转置/复杂合并）时，
+    把表格 HTML 交端点（建议 4B）理解结构，抽取合同号与明细，返回与 table_to_entries 同形状的结果
+    （headers/entries/totalRow），entries 带内部键 + canonical 中文 cells，供 llm_map/verify 链路复用。
+    行坐标 rowBoxNorm 在 irregular 几何下难以可靠回映，置 None（前端跳转回退估算）。"""
+    if not (html or "").strip():
+        return {"headers": [], "entries": [], "totalRow": None, "method": "llm-table"}
+    mapping = mapping or fieldmap.load_mapping()
+    system = (_cfg().get("table_prompt") or cfgmod.DEFAULT_TABLE_EXTRACT_PROMPT).strip()
+    fields_block = "\n".join(f"{f['field']}:{','.join(f['aliases']) or f['label']}" for f in mapping["fields"])
+    user = (f"目标业务字段(缩写:别名):\n{fields_block}\n\n"
+            f"表格HTML:\n{html}\n\n输出JSON:")
+    obj = _extract_json(chat([{"role": "system", "content": system},
+                              {"role": "user", "content": user}], max_tokens=2000))
+    headers = [c[2] for c in _TABLE_FIELDS]
+    if not isinstance(obj, dict):
+        return {"headers": headers, "entries": [], "totalRow": None, "method": "llm-table"}
+    entries = []
+    for it in obj.get("items", []):
+        if not isinstance(it, dict):
+            continue
+        name = it.get("itemName")
+        if not name or not str(name).strip():
+            continue
+        row = {"rowBoxNorm": None}
+        cells_dict = {}
+        for biz, internal, label in _TABLE_FIELDS:
+            raw = it.get(biz)
+            text = "" if raw is None else str(raw).strip()
+            cells_dict[label] = text
+            if internal in ("qty", "price", "amount"):
+                row[internal] = _to_num(raw)
+                row[internal + "Text"] = text or None
+            else:
+                row[internal] = text or None
+        row["name"] = str(name).strip()
+        row["cells"] = {k: v for k, v in cells_dict.items() if v}
+        entries.append(row)
+    total_amt = _to_num(obj.get("totalAmount"))
+    total_row = {"text": "合计", "amount": total_amt} if total_amt is not None else None
+    return {"headers": headers, "entries": entries, "totalRow": total_row,
+            "contractNo": obj.get("contractNo"), "method": "llm-table"}
 
 
 def _all_headers(extracted: dict) -> list:

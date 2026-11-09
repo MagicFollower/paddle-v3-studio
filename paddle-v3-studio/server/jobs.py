@@ -232,12 +232,28 @@ def start_contract_job(contract_id: str) -> dict:
                 job["progress"] = 10 + round(60 * (i + 1) / len(pages))
 
             _log(job, "extract", "提取合同号与明细表格")
+            import llm as llmmod
             no_info = ct.extract_contract_no(page_results)
+            llm_enabled = cfg.get("llm", {}).get("enabled", True)
             tables, carry = [], None
             for pr in page_results:
                 for t in pr.get("tables", []):
-                    parsed = ct.table_to_entries(t.get("html", ""), fallback=carry,
+                    html = t.get("html", "")
+                    parsed = ct.table_to_entries(html, fallback=carry,
                                                  cells=t.get("cellBoxesNorm"))
+                    # 不规则表格兜底：启发式解析不出明细（键值对/转置/复杂合并）且 LLM 启用 →
+                    # 交端点（建议 4B）做结构理解抽取，返回同形状结果复用 llm_map/verify 链路。
+                    if not parsed.get("entries") and html.strip() and llm_enabled:
+                        _check_cancel(job)
+                        try:
+                            alt = llmmod.understand_table(html, cells=t.get("cellBoxesNorm"))
+                            if alt.get("entries"):
+                                parsed = alt
+                                _log(job, "extract", f"第 {pr['page']} 页不规则表格经 LLM 结构理解抽取 {len(alt['entries'])} 条")
+                                if not no_info.get("found") and alt.get("contractNo"):
+                                    no_info["found"] = {"number": alt["contractNo"], "page": pr["page"], "source": "table-llm"}
+                        except llmmod.LLMError as e:
+                            _log(job, "extract", f"第 {pr['page']} 页 LLM 结构理解失败：{e}")
                     cm = parsed.pop("colmap", None)
                     if cm:
                         carry = {"headers": parsed.get("headers"), "colmap": cm}
@@ -250,7 +266,6 @@ def start_contract_job(contract_id: str) -> dict:
 
             _check_cancel(job)
             _log(job, "llm_map", "本地大模型把中文表头映射为业务英文字段")
-            import llm as llmmod
             mapped = llmmod.run_mapping(extracted, contract_id)
             if mapped.get("status") == "ok":
                 _log(job, "llm_map", f"映射完成：{mapped.get('entryCount')} 条 / 模型 {mapped.get('engine')} / 字段 {[f['field'] for f in mapped.get('fields', [])]}")

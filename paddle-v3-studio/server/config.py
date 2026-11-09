@@ -53,6 +53,29 @@ DEFAULT_SYSTEM_PROMPT = (
     "示例：表头 [\"品名\",\"数量\"]、目标字段 itemName(品名)/quantity(数量) → 输出 {\"品名\":\"itemName\",\"数量\":\"quantity\"}"
 )
 
+# LLM 表格结构理解前置提示词最优默认：针对「合同号+明细同表、行列极不规范」场景（键值对/转置/
+# 多行合并表头/分类小计穿插）。启发式 table_to_entries 无法泛化时由 llm.understand_table 兜底，
+# 建议用 4B 模型。用户可在设置覆盖（config.llm.table_prompt），空值回退此默认。
+DEFAULT_TABLE_EXTRACT_PROMPT = (
+    "你是合同明细表格结构理解专家。给你一个格式可能极不规则的合同表格（HTML，含 rowspan/colspan）与目标业务字段。"
+    "表格可能是：标准行列、键值对（标签|值交替）、转置（字段为行/条目为列）、多行合并表头、分类行+小计穿插，"
+    "合同号也可能放在表格单元格内。\n"
+    "\n"
+    "【任务】理解表格真实结构，抽取合同号与全部明细条目，按目标业务字段输出。\n"
+    "\n"
+    "【规则】\n"
+    "1. 无论行列如何组织，逐条还原每个明细 item 的字段值；键值对/转置表需把分散的标签-值正确归组到同一条目。\n"
+    "2. 跳过分类标题行、小计/合计/总计行（它们不是明细条目）；整表合计金额可单独放 totalAmount。\n"
+    "3. 只使用表格中实际出现的值，严禁编造；缺失字段用 null。数值保持原样（含逗号/小数）。\n"
+    "4. 合同号若在表内（如「合同编号：HT-...」单元格），提取到 contractNo。\n"
+    "5. 字段语义对齐目标字段别名（品名/物料名称→itemName，规格/型号→spec，单位→unit，数量→quantity，"
+    "单价→unitPrice，金额/总价→amount，序号→sortOrder）。\n"
+    "\n"
+    "【输出】只输出一个 JSON 对象：{\"contractNo\":\"...或null\",\"totalAmount\":数值或null,"
+    "\"items\":[{\"itemName\":\"...\",\"spec\":\"...\",\"unit\":\"...\",\"quantity\":\"...\",\"unitPrice\":\"...\",\"amount\":\"...\",\"sortOrder\":\"...\"}]}。"
+    "不要输出任何解释、思考过程或代码块标记。"
+)
+
 DEFAULTS = {
     "parse": {
         "use_table_recognition": True,
@@ -95,6 +118,7 @@ DEFAULTS = {
         "api_key": "",
         "timeout": 90,
         "system_prompt": DEFAULT_SYSTEM_PROMPT,
+        "table_prompt": DEFAULT_TABLE_EXTRACT_PROMPT,
     },
 }
 
@@ -330,6 +354,11 @@ SCHEMA = {
                  "help": {"作用": "LLM 表头映射的前置系统提示词，锁定任务边界/多对一/严格 JSON 输出等规则。",
                           "生效": "保存后下次映射实时读取；留空则回退代码内最优默认。动态的目标字段别名与表头由流水线自动追加。",
                           "选项": "默认已固化一份最优提示词；可编辑覆盖，点「还原默认」恢复最优值。"}},
+                {"key": "table_prompt", "label": "表格结构理解提示词（不规则表格兜底）", "type": "textarea", "rows": 10,
+                 "default": DEFAULT_TABLE_EXTRACT_PROMPT,
+                 "help": {"作用": "启发式无法解析的不规则表格（键值对/转置/合并/分节）由 LLM 结构理解兜底抽取明细的前置提示词。",
+                          "生效": "保存后下次解析实时读取；留空回退代码最优默认。建议端点加载 4B 模型以获得更好结构理解。",
+                          "选项": "默认已固化最优提示词；可编辑覆盖，点「还原默认」恢复。"}},
             ],
         },
     ]
