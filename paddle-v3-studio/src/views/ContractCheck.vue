@@ -142,8 +142,24 @@
 
             <div class="section">
               <div class="sec-title">合同明细（表格区域提取）</div>
-              <div v-for="(t, ti) in extracted?.tables || []" :key="ti" class="table-block">
-                <div class="muted">第 {{ t.page }} 页表格 · {{ t.entries.length }} 条明细<span v-if="t.totalRow"> · {{ t.totalRow.text }}</span></div>
+              <div class="hint-block">
+                流程：先精确判别表格规范性 → <b>规则表格</b>（标准/合并表头/分节）走启发式精确解析；
+                <b>不规则表格</b>（键值对/转置/无表头）动态调用 <b>4B LLM 结构理解</b>抽取。下方按表标注实际路径与形态。
+              </div>
+              <div v-for="(t, ti) in extracted?.tables || []" :key="ti" class="table-block" :class="{ irregular: t.regular === false }">
+                <div class="table-meta">
+                  <span class="muted">第 {{ t.page }} 页表格 · {{ t.entries.length }} 条明细<span v-if="t.totalRow"> · {{ t.totalRow.text }}</span></span>
+                  <el-tag size="small" :type="t.method === 'llm-table' ? 'warning' : 'success'" effect="dark">
+                    {{ t.method === 'llm-table' ? '4B LLM 结构理解' : '启发式精确解析' }}
+                  </el-tag>
+                  <el-tag size="small" effect="plain">{{ LAYOUT_LABEL[t.layout] || t.layout || '标准表' }}</el-tag>
+                  <el-tag size="small" :type="t.regular === false ? 'danger' : 'info'" effect="plain">
+                    {{ t.regular === false ? '不规则' : '规则' }}
+                  </el-tag>
+                </div>
+                <div v-if="t.regular === false" class="irregular-hint">
+                  不规则表格（{{ (t.regularityReasons || []).join('；') }}）→ 经 4B LLM 结构理解抽取，结果供人工复核。
+                </div>
                 <el-table :data="t.entries" size="small" border max-height="260" highlight-current-row
                   :row-class-name="rawRowClass" :cell-class-name="cellClass" @row-click="(row) => selectEntry(t, row)">
                   <el-table-column prop="name" label="品名" min-width="110" show-overflow-tooltip />
@@ -343,6 +359,7 @@ import { formatBytes, VERIFY_LABEL, VERIFY_TYPE, cleanText, cleanNumber, REVIEW_
 import PageViewer from '../components/PageViewer.vue'
 
 const FIELD_LABEL = { itemName: '品名', name: '品名', quantity: '数量', unitPrice: '单价', amount: '金额' }
+const LAYOUT_LABEL = { standard: '标准表', 'merged-header': '合并表头/分节', transposed: '转置表', 'key-value': '键值对表', headerless: '无表头', empty: '空表' }
 const SOURCE_LABEL = { 'same-line': '单行', 'next-line': '多行(下行)', 'split-line': '多行(折行)' }
 
 const contracts = ref([])
@@ -771,6 +788,9 @@ watch(() => props.autoOpenId, async (id) => {
 .no-card { display: flex; gap: 10px; align-items: center; margin-bottom: 4px; }
 .no-text { font-size: 18px; font-weight: 700; color: var(--contract-no-box); }
 .table-block { margin-bottom: 10px; }
+.table-block.irregular { border: 1px dashed var(--match-bad); border-radius: 6px; padding: 8px; background: #fff7ed; }
+.table-meta { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+.irregular-hint { font-size: 12px; color: var(--match-bad); margin-bottom: 6px; }
 .check-row { display: flex; gap: 6px; align-items: center; font-size: 13px; padding: 3px 0; flex-wrap: wrap; }
 .cross-row { display: flex; gap: 8px; align-items: center; font-size: 12px; padding: 2px 0; }
 .help-icon { color: var(--text-3); cursor: help; font-size: 15px; }
