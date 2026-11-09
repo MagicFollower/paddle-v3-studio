@@ -23,6 +23,7 @@ CONTRACT_STAGES = [
     {"key": "convert", "label": "文件转逐页图片", "chip": "转图"},
     {"key": "predict", "label": "逐页 V3 流水线推理", "chip": "推理"},
     {"key": "extract", "label": "合同号与明细提取", "chip": "提取"},
+    {"key": "llm_map", "label": "LLM 表头→业务字段映射", "chip": "映射"},
     {"key": "verify", "label": "对照数据源校验", "chip": "校验"},
     {"key": "persist", "label": "产物落盘", "chip": "落盘"},
 ]
@@ -106,12 +107,44 @@ def cancel_job(job_id):
     return dict(job)
 
 
+# ---------- 解析前全模型可用性门控 ----------
+
+class ModelUnavailable(Exception):
+    def __init__(self, errors):
+        self.errors = errors
+        super().__init__("; ".join(errors))
+
+
+def preflight_models() -> dict:
+    """同步检测所有模型可用性：4 个 Paddle 模型本地就位 + LLM（启用时端点可达且暴露所配模型）。
+    返回 {ok, models[], errors[]}；任一必需模型不可用 → ok=False。供设置页展示与解析前门控。"""
+    import pipeline
+    import llm as llmmod
+    models = pipeline.model_availability()
+    av = llmmod.availability()
+    models.append({"key": "llm", "kind": "llm", "name": av.get("model") or "LLM",
+                   "required": av.get("required", False), "available": av.get("available", False),
+                   "present": av.get("reachable", False), "endpoint": av.get("endpoint"),
+                   "reason": av.get("reason")})
+    errors = [f"{m.get('name') or m['key']}：{m.get('reason') or '不可用'}"
+              for m in models if m.get("required") and not m.get("available")]
+    return {"ok": not errors, "models": models, "errors": errors}
+
+
+def require_models() -> dict:
+    pf = preflight_models()
+    if not pf["ok"]:
+        raise ModelUnavailable(pf["errors"])
+    return pf
+
+
 # ---------- 图片解析任务 ----------
 
 def start_image_job(doc_id: str) -> dict:
     exist = active_job_for(doc_id)
     if exist:
         return exist
+    require_models()   # 解析前同步门控：所有模型可用才放行
     job = _new_job("image", doc_id, IMAGE_STAGES)
 
     def run():
@@ -162,6 +195,7 @@ def start_contract_job(contract_id: str) -> dict:
     exist = active_job_for(contract_id)
     if exist:
         return exist
+    require_models()   # 解析前同步门控：所有模型可用才放行
     job = _new_job("contract", contract_id, CONTRACT_STAGES)
 
     def run():
@@ -212,12 +246,22 @@ def start_contract_job(contract_id: str) -> dict:
                     t.pop("cellBoxesNorm", None)   # 单元格框仅用于定位，不持久化以免结果膨胀
             extracted = {"contractNo": no_info["found"], "noCandidates": no_info["candidates"],
                          "crossPage": no_info["crossPage"], "tables": tables}
-            job["progress"] = 78
+            job["progress"] = 72
+
+            _check_cancel(job)
+            _log(job, "llm_map", "本地大模型把中文表头映射为业务英文字段")
+            import llm as llmmod
+            mapped = llmmod.run_mapping(extracted, contract_id)
+            if mapped.get("status") == "ok":
+                _log(job, "llm_map", f"映射完成：{mapped.get('entryCount')} 条 / 模型 {mapped.get('engine')} / 字段 {[f['field'] for f in mapped.get('fields', [])]}")
+            else:
+                _log(job, "llm_map", f"映射跳过：{mapped.get('reason')}")
+            job["progress"] = 82
 
             _check_cancel(job)
             _log(job, "verify", "对照 Spring Boot 数据源校验")
             try:
-                report = verify.verify(extracted, cfg["contract"]["source_url"])
+                report = verify.verify(extracted, cfg["contract"]["source_url"], mapped=mapped)
             except verify.SourceError as e:
                 report = {"status": "source_unreachable", "contractNo": (no_info["found"] or {}).get("number"),
                           "checks": [{"key": "source", "label": "数据源可达", "ok": False, "detail": str(e)}],
@@ -226,7 +270,8 @@ def start_contract_job(contract_id: str) -> dict:
 
             _log(job, "persist", "写合同解析产物")
             payload = {"contractId": contract_id, "parsedAt": store._now(),
-                       "pages": page_results, "extracted": extracted, "report": report}
+                       "pages": page_results, "extracted": extracted, "report": report,
+                       "mapped": mapped}
             store.save_contract_result(contract_id, payload)
             store.update_contract(contract_id, {
                 "status": "parsed", "contractNo": (no_info["found"] or {}).get("number"),
@@ -258,7 +303,7 @@ def reverify_contract(contract_id: str) -> dict:
         raise ValueError("该合同尚未解析")
     cfg = cfgmod.load_config()
     try:
-        report = verify.verify(payload["extracted"], cfg["contract"]["source_url"])
+        report = verify.verify(payload["extracted"], cfg["contract"]["source_url"], mapped=payload.get("mapped"))
     except verify.SourceError as e:
         report = {"status": "source_unreachable",
                   "contractNo": (payload["extracted"].get("contractNo") or {}).get("number"),
@@ -268,3 +313,15 @@ def reverify_contract(contract_id: str) -> dict:
     store.save_contract_result(contract_id, payload)
     store.update_contract(contract_id, {"verifyStatus": report["status"]})
     return report
+
+
+def remap_contract(contract_id: str) -> dict:
+    """只重跑 LLM 字段映射（不重新推理），映射配置或模型变化后常用。"""
+    import llm as llmmod
+    payload = store.load_contract_result(contract_id)
+    if not payload:
+        raise ValueError("该合同尚未解析")
+    mapped = llmmod.run_mapping(payload.get("extracted") or {}, contract_id)
+    payload["mapped"] = mapped
+    store.save_contract_result(contract_id, payload)
+    return mapped

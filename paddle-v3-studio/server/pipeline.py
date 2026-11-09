@@ -40,6 +40,24 @@ def model_dir(name: str):
         "先运行 scripts\\setup.cmd 预下载模型（安装阶段联网，运行时离线）")
 
 
+def model_availability() -> list:
+    """非抛错地检查 Paddle 各模型本地目录是否就位（解析前门控用）。
+    表格模型仅在启用表格识别时纳入。"""
+    cfg = cfgmod.load_config()
+    m = cfg["model"]
+    keys = ["layout_model", "det_model", "rec_model"]
+    if cfg["parse"]["use_table_recognition"]:
+        keys.append("table_model")
+    out = []
+    for key in keys:
+        name = m[key]
+        present = (MODELS / "official_models" / name).exists() or (MODELS / name).exists()
+        out.append({"key": key, "kind": "paddle", "name": name, "required": True,
+                    "present": present, "available": present,
+                    "reason": None if present else f"本地模型目录缺失：{name}（运行 scripts\\setup.cmd）"})
+    return out
+
+
 def get_pipeline():
     global _pipeline, _pipeline_key
     cfg = cfgmod.load_config()

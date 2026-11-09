@@ -14,7 +14,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import config as cfgmod  # noqa: E402
 import device as devmod  # noqa: E402
+import fieldmap  # noqa: E402
 import jobs  # noqa: E402
+import llm as llmmod  # noqa: E402
 import pipeline  # noqa: E402
 import store  # noqa: E402
 import verify  # noqa: E402
@@ -161,9 +163,15 @@ async def upload_document(file: UploadFile = File(...)):
     (store.UPLOADS / disk_name).write_bytes(data)
     store.add_document(doc_id, file.filename or "unnamed", mime, width, height, len(data), disk_name)
     auto = cfgmod.load_config()["parse"].get("auto_parse_on_upload", False)
-    job = jobs.start_image_job(doc_id) if auto else None
+    job, preflight_error = None, None
+    if auto:
+        try:
+            job = jobs.start_image_job(doc_id)
+        except jobs.ModelUnavailable as e:
+            preflight_error = "；".join(e.errors)
     return {"id": doc_id, "jobId": job["id"] if job else None,
-            "width": width, "height": height, "autoParsed": bool(auto)}
+            "width": width, "height": height, "autoParsed": bool(job),
+            "preflightError": preflight_error}
 
 
 @app.get("/api/documents/{doc_id}")
@@ -230,7 +238,10 @@ async def parse(request: Request):
     doc_id = body.get("docId")
     if not doc_id or not store.get_document(doc_id):
         raise HTTPException(404, "文档不存在")
-    job = jobs.start_image_job(doc_id)
+    try:
+        job = jobs.start_image_job(doc_id)
+    except jobs.ModelUnavailable as e:
+        raise HTTPException(409, "模型可用性未通过，禁止解析：" + "；".join(e.errors))
     return {"jobId": job["id"], "status": job["status"]}
 
 
@@ -315,11 +326,18 @@ async def upload_contract(file: UploadFile = File(...)):
     (work / disk_name).write_bytes(data)
     auto = cfgmod.load_config()["parse"].get("auto_parse_on_upload", False)
     entry = {"id": cid, "name": name, "ext": ext, "size": len(data), "diskName": disk_name,
-             "uploadedAt": store._now(), "status": "parsing" if auto else "uploaded", "pageCount": 0,
+             "uploadedAt": store._now(), "status": "uploaded", "pageCount": 0,
              "contractNo": None, "verifyStatus": None}
     store.add_contract(entry)
-    job = jobs.start_contract_job(cid) if auto else None
-    return {"id": cid, "jobId": job["id"] if job else None, "autoParsed": bool(auto)}
+    job, preflight_error = None, None
+    if auto:
+        try:
+            job = jobs.start_contract_job(cid)
+            store.update_contract(cid, {"status": "parsing"})
+        except jobs.ModelUnavailable as e:
+            preflight_error = "；".join(e.errors)
+    return {"id": cid, "jobId": job["id"] if job else None, "autoParsed": bool(job),
+            "preflightError": preflight_error}
 
 
 @app.get("/api/contracts/{contract_id}")
@@ -355,8 +373,11 @@ def contract_page_image(contract_id: str, page_no: int):
 def contract_parse(contract_id: str):
     if not store.get_contract(contract_id):
         raise HTTPException(404, "合同条目不存在")
+    try:
+        job = jobs.start_contract_job(contract_id)
+    except jobs.ModelUnavailable as e:
+        raise HTTPException(409, "模型可用性未通过，禁止解析：" + "；".join(e.errors))
     store.update_contract(contract_id, {"status": "parsing"})
-    job = jobs.start_contract_job(contract_id)
     return {"jobId": job["id"], "status": job["status"]}
 
 
@@ -388,6 +409,26 @@ def contract_reverify(contract_id: str):
         raise HTTPException(409, str(e))
 
 
+@app.post("/api/contracts/{contract_id}/llm-map")
+def contract_llm_map(contract_id: str):
+    if not store.get_contract(contract_id):
+        raise HTTPException(404, "合同条目不存在")
+    try:
+        return jobs.remap_contract(contract_id)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+
+
+@app.get("/api/contracts/{contract_id}/mapped")
+def contract_mapped(contract_id: str):
+    if not store.get_contract(contract_id):
+        raise HTTPException(404, "合同条目不存在")
+    payload = store.load_contract_result(contract_id)
+    if not payload:
+        raise HTTPException(409, "尚未解析完成")
+    return payload.get("mapped") or {"status": "skipped", "reason": "尚未运行 LLM 映射", "entries": []}
+
+
 @app.delete("/api/contracts/{contract_id}")
 def delete_contract(contract_id: str):
     if not store.delete_contract(contract_id):
@@ -399,6 +440,53 @@ def delete_contract(contract_id: str):
 def source_status():
     cfg = cfgmod.load_config()
     return verify.probe_source(cfg["contract"]["source_url"])
+
+
+# ---------- 字段映射配置 / LLM ----------
+
+@app.get("/api/field-mapping")
+def get_field_mapping():
+    return fieldmap.load_mapping()
+
+
+@app.post("/api/field-mapping")
+async def post_field_mapping(request: Request):
+    body = await request.json()
+    try:
+        return fieldmap.save_mapping(body)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/field-mapping/validate")
+async def validate_field_mapping(request: Request):
+    body = await request.json()
+    errs = fieldmap.validate_mapping(body)
+    if errs:
+        raise HTTPException(400, "; ".join(errs))
+    return {"ok": True}
+
+
+@app.post("/api/field-mapping/reset")
+def reset_field_mapping():
+    return fieldmap.reset_mapping()
+
+
+@app.get("/api/llm/status")
+def llm_status():
+    return llmmod.status()
+
+
+@app.post("/api/llm/check")
+def llm_check():
+    """设置页「检测 LLM 可用性」：探端点可达 + 模型名核对（不拉起模型）。"""
+    return llmmod.availability()
+
+
+@app.get("/api/models/availability")
+def models_availability():
+    """所有模型可用性总览（4 Paddle + LLM），解析前门控同源。ok=False 时禁止解析。"""
+    return jobs.preflight_models()
 
 
 # ---------- 静态 ----------

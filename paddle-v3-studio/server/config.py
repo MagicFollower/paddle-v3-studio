@@ -28,6 +28,31 @@ COLOR_FIELDS = [
 ]
 DEFAULT_COLORS = {c["key"]: c["default"] for c in COLOR_FIELDS}
 
+# LLM 前置提示词（system prompt）最优默认值：基于本工程「合同明细表头→后端业务字段」映射流程固化。
+# 用户可在系统设置覆盖（config.llm.system_prompt），空值回退此默认；设置页可一键还原。
+# 设计要点：锁定任务边界（只做表头映射）、多对一、仅选给定字段、未知置 null、OCR 噪声归一化、
+# 严格 JSON 输出（无解释/思考/代码块），与 llm._build_prompt 的动态字段别名块配合。
+DEFAULT_SYSTEM_PROMPT = (
+    "你是合同明细表格的「表头→业务字段」映射专家，服务于 OCR 解析后的合同明细自动标准化流水线。\n"
+    "\n"
+    "【任务】OCR 已从合同表格识别出一行中文表头（不同合同写法各异，可能含空格或轻微噪声）。"
+    "你的唯一任务：把每个实际中文表头映射到给定的目标业务字段英文缩写。\n"
+    "\n"
+    "【规则】\n"
+    "1. 只能从给定的目标业务字段中选择，严禁发明列表之外的字段名。\n"
+    "2. 多对一：多个同义中文表头（如「品名」「物料名称」「货物名称」「产品名称」）可映射到同一个英文字段；"
+    "逐个表头独立判断其语义最匹配的字段。\n"
+    "3. 每个字段的中文别名仅作参考提示，以表头真实语义为准；表头含空格或 OCR 噪声（如「品 名」「数 量」）"
+    "应先归一化再匹配。\n"
+    "4. 语义不符或无法确定的表头，值用 null，不要强行映射。\n"
+    "5. 常见对应：序号/编号/项次/行号→排序字段；名称类→品名字段；规格/型号→规格；单位/计量单位→单位；"
+    "数量/数目→数量；单价/含税单价→单价；金额/总价/小计/含税金额→金额（最终以给定的目标字段为准）。\n"
+    "\n"
+    "【输出】只输出一个 JSON 对象：键为中文表头原文（保持原样，含空格），值为目标英文字段缩写或 null。"
+    "不要输出任何解释、思考过程、Markdown 代码块标记或多余文字。\n"
+    "示例：表头 [\"品名\",\"数量\"]、目标字段 itemName(品名)/quantity(数量) → 输出 {\"品名\":\"itemName\",\"数量\":\"quantity\"}"
+)
+
 DEFAULTS = {
     "parse": {
         "use_table_recognition": True,
@@ -62,6 +87,14 @@ DEFAULTS = {
         "no_format_regex": "",
         "prefer_first_page": True,
         "normalize_confusables": False,
+    },
+    "llm": {
+        "enabled": True,
+        "base_url": "http://127.0.0.1:9931",
+        "model": "spark-x2.6",
+        "api_key": "",
+        "timeout": 90,
+        "system_prompt": DEFAULT_SYSTEM_PROMPT,
     },
 }
 
@@ -117,6 +150,17 @@ def validate_config(patch: dict) -> list:
             errs.append(f"颜色 {k} 必须是 #RGB 或 #RRGGBB 格式")
     if not (20 <= merged["display"].get("default_zoom", 60) <= 400):
         errs.append("default_zoom 必须在 20~400")
+    llm = merged.get("llm", {})
+    import re as _llm_re
+    base_url = (llm.get("base_url") or "").strip()
+    if not base_url:
+        errs.append("llm.base_url 不能为空（OpenAI 兼容端点，如 http://127.0.0.1:9931）")
+    elif not _llm_re.match(r"^https?://", base_url):
+        errs.append("llm.base_url 必须以 http:// 或 https:// 开头")
+    if not (llm.get("model") or "").strip():
+        errs.append("llm.model 不能为空（端点上的模型名/别名）")
+    if float(llm.get("timeout", 90)) <= 0:
+        errs.append("llm.timeout 必须大于 0")
     return errs
 
 
@@ -256,6 +300,36 @@ SCHEMA = {
                  "help": {"作用": "跨页比对与输出编号做 O→0、I/l→1 归一化，减少形近字导致的假不一致。",
                           "生效": "下次合同解析读取；开启后输出编号可能纠正 OCR 形近误读。",
                           "选项": "开/关，默认关（可能掩盖真实差异，按需开启）。"}},
+            ],
+        },
+        {
+            "key": "llm", "label": "LLM 字段映射（API 端点接入）",
+            "fields": [
+                {"key": "enabled", "label": "启用 LLM 表头→业务字段映射阶段", "type": "bool",
+                 "help": {"作用": "合同解析流水线在提取后、校验前新增 llm_map 阶段，经 API 端点把 varied 中文表头识别为配置的业务英文字段。",
+                          "生效": "开启时纳入解析前全模型可用性门控（端点须可达）；关闭则跳过该阶段且不门控 LLM。",
+                          "选项": "开（默认）=自动映射并门控；关=不映射、解析不受 LLM 影响。"}},
+                {"key": "base_url", "label": "API 端点地址（OpenAI 兼容）", "type": "text",
+                 "help": {"作用": "LLM 服务的 OpenAI 兼容基址，后端以客户端方式调用，不自行拉起模型。",
+                          "生效": "保存后实时生效；默认本地 http://127.0.0.1:9931（双击 llm-server.cmd 手动启动）。可填任意远程/本地端点。",
+                          "选项": "默认 http://127.0.0.1:9931；远程如 https://host/v1 的基址（不含 /chat/completions）。"}},
+                {"key": "model", "label": "模型名/别名（端点上）", "type": "text",
+                 "help": {"作用": "调用端点时传入的 model 名称，须与端点暴露的模型一致。",
+                          "生效": "保存后实时生效；可用性检测会核对该模型是否在端点 /v1/models 列表中。",
+                          "选项": "默认 spark-x2.6（llm-server.cmd 的 --alias）；按所接端点实际模型名填写。"}},
+                {"key": "api_key", "label": "API Key（可选，Bearer）", "type": "text",
+                 "help": {"作用": "端点需要鉴权时填入，作为 Authorization: Bearer 头。",
+                          "生效": "保存后实时生效；本地 llama serve 默认无需 key，留空即可。",
+                          "选项": "空=不鉴权；远程服务按其所给 key 填写。"}},
+                {"key": "timeout", "label": "请求超时（秒）", "type": "number", "min": 5, "max": 600, "step": 5,
+                 "help": {"作用": "单次端点请求（可用性检测/推理）的超时上限。",
+                          "生效": "下次调用读取；超时则该阶段优雅跳过并留痕。",
+                          "选项": "5~600，默认 90。"}},
+                {"key": "system_prompt", "label": "前置提示词（System Prompt）", "type": "textarea", "rows": 10,
+                 "default": DEFAULT_SYSTEM_PROMPT,
+                 "help": {"作用": "LLM 表头映射的前置系统提示词，锁定任务边界/多对一/严格 JSON 输出等规则。",
+                          "生效": "保存后下次映射实时读取；留空则回退代码内最优默认。动态的目标字段别名与表头由流水线自动追加。",
+                          "选项": "默认已固化一份最优提示词；可编辑覆盖，点「还原默认」恢复最优值。"}},
             ],
         },
     ]

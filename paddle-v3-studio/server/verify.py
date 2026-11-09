@@ -62,8 +62,55 @@ def _name_sim(a, b):
     return len(sa & sb) / max(1, len(sa | sb))
 
 
-def verify(extracted: dict, source_url: str) -> dict:
-    """extracted: {contractNo:{number,...}|None, tables:[{entries,totalRow}], pages...}"""
+_NUM_RE = re.compile(r"-?\d+(?:\.\d+)?")
+
+
+def _to_num(v):
+    """把映射后的文本值（可能含逗号/空白/单位）解析为数；无法解析返回 None。"""
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    m = _NUM_RE.search(str(v).replace(",", "").replace("，", ""))
+    return float(m.group()) if m else None
+
+
+def _build_ocr_entries(extracted: dict, mapped: dict = None):
+    """归一化明细条目为后端响应字段名（itemName/spec/unit/quantity/unitPrice/amount）。
+    优先用 LLM 映射产物（mapped.status==ok 且有明细）——其键名已与后端响应参数对齐；
+    映射跳过/无明细时回退 extracted 内部键（name/qty/price/amount），保证流水线始终可校验。
+    每条同时带显示别名（name/qty/price/amount/*Text）与 page/rowBoxNorm，供前端红标/跳转复用。"""
+    use_mapped = bool(mapped and mapped.get("status") == "ok" and mapped.get("entries"))
+    out = []
+    if use_mapped:
+        for e in mapped["entries"]:
+            qty, price, amt = _to_num(e.get("quantity")), _to_num(e.get("unitPrice")), _to_num(e.get("amount"))
+            name = e.get("itemName")
+            out.append({
+                "itemName": name, "spec": e.get("spec"), "unit": e.get("unit"),
+                "quantity": qty, "unitPrice": price, "amount": amt,
+                "name": name, "qty": qty, "price": price,
+                "qtyText": e.get("quantity"), "priceText": e.get("unitPrice"), "amountText": e.get("amount"),
+                "page": e.get("page"), "rowBoxNorm": e.get("rowBoxNorm"),
+            })
+        return out, "mapped"
+    for t in extracted.get("tables", []):
+        for e in t.get("entries", []):
+            name = e.get("name")
+            qty, price, amt = e.get("qty"), e.get("price"), e.get("amount")
+            out.append({
+                "itemName": name, "spec": e.get("spec"), "unit": e.get("unit"),
+                "quantity": qty, "unitPrice": price, "amount": amt,
+                "name": name, "qty": qty, "price": price,
+                "qtyText": e.get("qtyText"), "priceText": e.get("priceText"), "amountText": e.get("amountText"),
+                "page": t.get("page"), "rowBoxNorm": e.get("rowBoxNorm"),
+            })
+    return out, "extracted"
+
+
+def verify(extracted: dict, source_url: str, mapped: dict = None) -> dict:
+    """extracted: {contractNo:{number,...}|None, tables:[{entries,totalRow}], pages...}
+    mapped: LLM 字段映射产物（键名对齐后端响应参数）；优先用它对照后端，跳过时回退 extracted。"""
     cfg = cfgmod.load_config()
     tol = float(cfg["contract"]["amount_tolerance"])
     no_info = extracted.get("contractNo") or {}
@@ -98,17 +145,14 @@ def verify(extracted: dict, source_url: str) -> dict:
     items = data.get("items") or []
     report["sourceContract"] = contract
 
-    ocr_entries = []
-    for t in extracted.get("tables", []):
-        for e in t.get("entries", []):
-            e = dict(e)
-            e["page"] = t.get("page")
-            ocr_entries.append(e)
+    ocr_entries, entry_source = _build_ocr_entries(extracted, mapped)
+    report["matchSource"] = entry_source   # mapped=用LLM转换后的业务字段匹配；extracted=回退内部键
 
     if not ocr_entries:
         check("items_found", "明细条目提取", False, "未从表格区域提取到明细条目")
     else:
-        check("items_found", "明细条目提取", True, f"提取到 {len(ocr_entries)} 条明细")
+        check("items_found", "明细条目提取", True,
+              f"提取到 {len(ocr_entries)} 条明细（{'LLM 映射业务字段' if entry_source == 'mapped' else '内部键回退'}）")
 
     check("item_count", "明细行数一致", len(ocr_entries) == len(items),
           f"文件 {len(ocr_entries)} 行 / 数据源 {len(items)} 行")
@@ -120,12 +164,12 @@ def verify(extracted: dict, source_url: str) -> dict:
         for i, e in enumerate(ocr_entries):
             if i in used:
                 continue
-            sim = _name_sim(src.get("itemName"), e.get("name"))
+            sim = _name_sim(src.get("itemName"), e.get("itemName"))
             if sim > best_sim:
                 best, best_sim = i, sim
         row = {"source": src, "matched": False, "fields": []}
         if best is None or best_sim < 0.5:
-            row["fields"].append({"field": "name", "ok": False,
+            row["fields"].append({"field": "itemName", "ok": False,
                                   "source": src.get("itemName"), "ocr": None,
                                   "detail": "文件中未找到对应品名"})
             mismatch += 1
@@ -134,13 +178,12 @@ def verify(extracted: dict, source_url: str) -> dict:
         used.add(best)
         e = ocr_entries[best]
         row.update(matched=True, ocr=e, nameSim=round(best_sim, 3))
-        row["fields"].append({"field": "name", "ok": best_sim >= 0.8,
-                              "source": src.get("itemName"), "ocr": e.get("name"),
+        row["fields"].append({"field": "itemName", "ok": best_sim >= 0.8,
+                              "source": src.get("itemName"), "ocr": e.get("itemName"),
                               "detail": f"品名相似度 {best_sim:.2f}"})
-        for fld, skey, okey in [("quantity", "quantity", "qty"),
-                                ("unitPrice", "unitPrice", "price"),
-                                ("amount", "amount", "amount")]:
-            sv, ov = src.get(skey), e.get(okey)
+        # 字段名与后端响应参数一致（quantity/unitPrice/amount），值已由映射文本解析为数
+        for fld in ("quantity", "unitPrice", "amount"):
+            sv, ov = src.get(fld), e.get(fld)
             if sv is None and ov is None:
                 continue
             ok = sv is not None and ov is not None and abs(float(sv) - float(ov)) <= tol
@@ -148,16 +191,14 @@ def verify(extracted: dict, source_url: str) -> dict:
                                   "detail": "一致" if ok else f"不一致（容差 {tol}）"})
             if not ok:
                 mismatch += 1
-        if not all(f["ok"] for f in row["fields"]):
-            mismatch += 0
         report["itemComparison"].append(row)
 
     for i, e in enumerate(ocr_entries):
         if i not in used:
             report["itemComparison"].append({
                 "source": None, "ocr": e, "matched": False,
-                "fields": [{"field": "name", "ok": False, "source": None,
-                            "ocr": e.get("name"), "detail": "数据源无此明细行"}]})
+                "fields": [{"field": "itemName", "ok": False, "source": None,
+                            "ocr": e.get("itemName"), "detail": "数据源无此明细行"}]})
             mismatch += 1
 
     total_src = contract.get("totalAmount")

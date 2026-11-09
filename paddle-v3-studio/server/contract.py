@@ -418,11 +418,19 @@ def table_to_entries(html: str, fallback: dict = None, cells=None) -> dict:
         name = get("name")
         if not name or not str(name).strip():
             continue
+        # 保留「中文表头→原值」全列字典，供 LLM 字段映射阶段按识别出的表头→业务字段重写键名；
+        # 内部键(name/qty/...)只覆盖固定 hints，cells 覆盖任意表头，支持不同合同明细表头。
+        cells = {}
+        for j, h in enumerate(headers):
+            hk = str(h).strip()
+            if hk and j < len(row):
+                cells[hk] = "" if row[j] is None else str(row[j])
         entries.append({
             "no": get("no"), "name": str(name).strip(), "spec": get("spec"),
             "unit": get("unit"), "qty": _num(get("qty")), "qtyText": get("qty"),
             "price": _num(get("price")), "priceText": get("price"),
             "amount": _num(get("amount")), "amountText": get("amount"),
+            "cells": cells,
             "rowBoxNorm": [round(v, 2) for v in vrows[gi]] if (use_cells and gi < len(vrows)) else None,
         })
     return {"headers": headers, "entries": entries, "totalRow": total_row, "colmap": colmap}
