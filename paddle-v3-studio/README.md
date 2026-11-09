@@ -129,7 +129,11 @@ Vue 3 + Element Plus 前端（固定版本 vue 3.5.44 / element-plus 2.14.7 / vi
 - **多对一**：一个英文字段挂多个中文别名（`itemName ← 品名/物料名称/货物名称…`）；导入兼容扁平配对
   `{mappings:[{from,to}]}` 自动归并；同表多列命中同一字段时非空优先合并、冲突留痕 `_conflicts`。
 - 左侧「字段映射」页逐条编辑 `{英文缩写, 中文标签, 中文表头别名[]}`，支持导入/导出/复制 JSON、恢复默认；
-  独立存于 `data/field_mapping.json`。
+  独立存于 `data/field_mapping.json`。默认 **15 字段**：核心 7（对齐后端 sortOrder/itemName/spec/unit/quantity/unitPrice/amount）
+  + 扩展 8（taxRate/taxAmount/brand/origin/manufacturer/deliveryDate/warranty/remark）支持更多合同类型；
+  校验只比对后端核心字段，扩展字段抽取/映射/展示但不参与后端比对。
+- **字段映射广度黑箱测试**：`scripts/check_field_mapping.py --run`（10 份不同表头别名/扩展列/规则与不规则形态的真实 PDF，
+  全 matched，归档 `doc/field-mapping-test-report.md`）。
 - **触发**：每次合同解析自动跑（端点不可用时优雅跳过并留痕）；也可在合同详情页点「LLM映射」对已解析合同
   单独重跑（`POST /api/contracts/:id/llm-map`）。
 - **极不规范表格规范化（建议 4B）**：合同号+明细同表但行列极不规范（键值对/转置/多行合并表头/分类小计穿插）时，
@@ -267,6 +271,7 @@ paddle-v3-studio/
 │  ├─ make_crosspage_demo.py 跨页+部分明细存在场景 PDF（HT-2026-001，33 行跨 2 页）
 │  ├─ make_irregular_demo.py 极不规范表格真实 PDF（键值/转置/合并）+ 4B 端到端验收（--run，全 matched）
 │  ├─ check_table_irregular.py 6 类不规则表格形态判据（4 类快修达标，--selftest 自证）
+│  ├─ check_field_mapping.py 字段映射广度黑箱测试（10 份不同映射真实 PDF，--run，全 matched）
 │  ├─ llm_local.py          测试专用本地 llama 拉起助手（生产由 llm-server.cmd 手动起）
 │  ├─ llm_benchmark.py      真起 LLM 测准确率/耗时 + 跨页端到端（结果落 doc/）
 │  ├─ check_studio.py       端到端判据 78 条（自起后端+本地 LLM，退出码=失败条数）
