@@ -63,6 +63,17 @@
             </template>
             <el-icon class="help-icon"><QuestionFilled /></el-icon>
           </el-tooltip>
+          <el-button size="small" :icon="MagicStick" @click="runLlmMap" :loading="llmMapping" :disabled="busy || !payload">LLM映射</el-button>
+          <el-tooltip placement="top" effect="light">
+            <template #content>
+              <div class="help-tip">
+                <div class="help-line"><b>作用</b> 用本地离线大模型把明细中文表头识别为「字段映射」页配置的业务英文字段，输出新 Json。</div>
+                <div class="help-line"><b>流程</b> 读已解析 extracted → llama serve（GPU 优先，无则 CPU）识别表头 → 确定性重写键名 → 存 mapped。</div>
+                <div class="help-line"><b>适用</b> 映射配置或模型变化后单独重跑，不必重新 OCR。结果见「业务字段(LLM)」tab。</div>
+              </div>
+            </template>
+            <el-icon class="help-icon"><QuestionFilled /></el-icon>
+          </el-tooltip>
           <el-button size="small" :icon="Delete" type="danger" plain @click="removeContract" :disabled="busy">删除</el-button>
         </div>
       </div>
@@ -261,6 +272,38 @@
               <el-empty v-if="!errorEntries.length" description="无错误明细（全部与数据源一致）" :image-size="50" />
             </el-scrollbar>
           </el-tab-pane>
+          <el-tab-pane label="业务字段(LLM)" name="llm">
+            <el-scrollbar height="100%">
+              <div class="items-bar">
+                <el-button size="small" :icon="CopyDocument" @click="copyMappedJson" :disabled="!mappedData">复制为Json</el-button>
+                <el-button size="small" :icon="MagicStick" @click="runLlmMap" :loading="llmMapping" :disabled="busy">重新映射</el-button>
+                <el-tag v-if="mappedData?.status === 'ok'" size="small" type="success" effect="plain">
+                  {{ mappedData.method === 'llm' ? 'LLM 映射' : '映射' }} · {{ mappedData.engine || '' }} · {{ mappedData.entryCount }} 条
+                </el-tag>
+                <el-tag v-else-if="mappedData?.status === 'skipped'" size="small" type="warning" effect="plain">已跳过</el-tag>
+              </div>
+              <el-alert v-if="mappedData?.status === 'skipped'" type="warning" :closable="false" show-icon
+                :title="mappedData.reason || '尚未运行 LLM 映射'" :description="mappedData.hint || '点上方「重新映射」启动本地大模型转换。'" style="margin-bottom:10px" />
+              <template v-if="mappedData?.status === 'ok'">
+                <div class="sec-title">表头 → 业务字段（模型识别）</div>
+                <div class="header-map">
+                  <span v-for="(fld, h) in mappedData.headerMap" :key="h" class="hm-item">
+                    <span class="hm-h">{{ h }}</span><span class="hm-arrow">→</span><span class="mono hm-f">{{ fld }}</span>
+                  </span>
+                  <span v-if="!Object.keys(mappedData.headerMap || {}).length" class="muted">无</span>
+                </div>
+                <div class="sec-title" style="margin-top:10px">业务字段明细（英文缩写键名）</div>
+                <el-table :data="mappedData.entries" size="small" border max-height="360" highlight-current-row
+                  @row-click="(row) => jumpToEntry(row)">
+                  <el-table-column v-for="f in mappedData.fields" :key="f.field" :prop="f.field" :label="`${f.label} (${f.field})`"
+                    min-width="100" show-overflow-tooltip />
+                  <el-table-column prop="page" label="页" width="50" align="center" />
+                </el-table>
+                <el-empty v-if="!mappedData.entries?.length" description="无明细条目" :image-size="50" />
+              </template>
+              <el-empty v-else-if="!mappedData" description="尚未运行 LLM 映射 · 点「重新映射」开始" :image-size="50" />
+            </el-scrollbar>
+          </el-tab-pane>
           </el-tabs>
         </div>
       </div>
@@ -293,13 +336,13 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Upload, Refresh, Delete, CircleCheck, CircleClose, QuestionFilled, CopyDocument } from '@element-plus/icons-vue'
+import { Upload, Refresh, Delete, CircleCheck, CircleClose, QuestionFilled, CopyDocument, MagicStick } from '@element-plus/icons-vue'
 import { api } from '../api.js'
 import { display, setDisplay } from '../display.js'
 import { formatBytes, VERIFY_LABEL, VERIFY_TYPE, cleanText, cleanNumber, REVIEW_FIELDS, hasReview } from '../utils.js'
 import PageViewer from '../components/PageViewer.vue'
 
-const FIELD_LABEL = { name: '品名', quantity: '数量', unitPrice: '单价', amount: '金额' }
+const FIELD_LABEL = { itemName: '品名', name: '品名', quantity: '数量', unitPrice: '单价', amount: '金额' }
 const SOURCE_LABEL = { 'same-line': '单行', 'next-line': '多行(下行)', 'split-line': '多行(折行)' }
 
 const contracts = ref([])
@@ -310,6 +353,7 @@ const job = ref(null)
 const pageNo = ref(1)
 const uploading = ref(false)
 const reverifying = ref(false)
+const llmMapping = ref(false)
 const rtab = ref('detail')
 const selected = ref(null)
 const activeEntry = ref(null)
@@ -339,6 +383,7 @@ const opColWidth = computed(() => Math.max(170, rightWidth.value - 22 - 480))
 
 const extracted = computed(() => payload.value?.extracted)
 const report = computed(() => payload.value?.report)
+const mappedData = computed(() => payload.value?.mapped || null)
 const pageData = computed(() => payload.value?.pages?.find(p => p.page === pageNo.value))
 const marksForPage = computed(() => {
   if (!extracted.value) return null
@@ -471,6 +516,26 @@ async function reparse() {
   } catch (e) { ElMessage.error(e.message) }
 }
 
+async function runLlmMap() {
+  if (!currentId.value || !payload.value) return
+  llmMapping.value = true
+  try {
+    const r = await api.llmMapContract(currentId.value)
+    payload.value = { ...payload.value, mapped: r }
+    rtab.value = 'llm'
+    if (r.status === 'ok') ElMessage.success(`LLM 映射完成：${r.entryCount} 条（${(r.device || '').toUpperCase()}）`)
+    else ElMessage.warning(`映射跳过：${r.reason || ''}`)
+  } catch (e) { ElMessage.error(e.message) } finally { llmMapping.value = false }
+}
+
+async function copyMappedJson() {
+  if (!mappedData.value) { ElMessage.warning('暂无可复制的映射结果'); return }
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(mappedData.value, null, 2))
+    ElMessage.success('业务字段 Json 已复制')
+  } catch { ElMessage.error('复制失败（浏览器不允许写剪贴板）') }
+}
+
 async function removeContract() {
   try {
     await ElMessageBox.confirm(`删除合同条目 ${current.value.name}？`, '删除确认', { type: 'warning' })
@@ -502,7 +567,7 @@ function selectEntry(t, row) {
 // itemComparison 按数据源顺序排列（非明细顺序），但每个匹配行带 row.ocr（原始条目，含 page/rowBoxNorm），
 // 故以「page+行坐标」为键把对照行映射回明细条目（归一化条目保留 rowBoxNorm，键不变）。
 const CMP_FIELD_BY_PROP = {
-  name: 'name', qtyText: 'quantity', qty: 'quantity',
+  name: 'itemName', qtyText: 'quantity', qty: 'quantity',
   priceText: 'unitPrice', price: 'unitPrice', amountText: 'amount', amount: 'amount',
 }
 function entryKey(e) {
@@ -696,6 +761,11 @@ watch(() => props.autoOpenId, async (id) => {
 .ocr-card.on { border-color: var(--brand); background: #eff6ff; }
 .ocr-text { font-size: 13px; word-break: break-all; }
 .items-bar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+.header-map { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+.hm-item { display: inline-flex; gap: 4px; align-items: center; border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; font-size: 12px; }
+.hm-h { color: var(--text-2); }
+.hm-arrow { color: var(--text-3); }
+.hm-f { color: var(--brand); font-weight: 600; }
 .section { margin-bottom: 16px; }
 .sec-title { font-weight: 600; font-size: 13px; margin-bottom: 6px; display: flex; gap: 8px; align-items: center; }
 .no-card { display: flex; gap: 10px; align-items: center; margin-bottom: 4px; }

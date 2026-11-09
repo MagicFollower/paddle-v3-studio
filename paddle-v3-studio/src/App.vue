@@ -25,6 +25,7 @@
           <el-menu-item index="images"><el-icon><Picture /></el-icon>图片解析</el-menu-item>
           <el-menu-item index="contracts"><el-icon><Document /></el-icon>合同校验</el-menu-item>
           <el-menu-item index="queue"><el-icon><List /></el-icon>解析队列</el-menu-item>
+          <el-menu-item index="fieldmapping"><el-icon><Connection /></el-icon>字段映射</el-menu-item>
           <el-menu-item index="settings"><el-icon><Setting /></el-icon>系统设置</el-menu-item>
         </el-menu>
         <div class="nav-foot muted">
@@ -36,6 +37,7 @@
         <ImageParse v-else-if="view === 'images'" :auto-open-id="openId" @opened="openId = null" />
         <ContractCheck v-else-if="view === 'contracts'" :auto-open-id="openId" @opened="openId = null" />
         <QueueView v-else-if="view === 'queue'" @open="openEntry" />
+        <FieldMapping v-else-if="view === 'fieldmapping'" />
         <SettingsView v-else />
       </el-main>
     </el-container>
@@ -44,13 +46,14 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { Picture, Document, Setting, Refresh, Folder, List } from '@element-plus/icons-vue'
+import { Picture, Document, Setting, Refresh, Folder, List, Connection } from '@element-plus/icons-vue'
 import { api } from './api.js'
 import { loadDisplay } from './display.js'
 import FilesView from './views/FilesView.vue'
 import ImageParse from './views/ImageParse.vue'
 import ContractCheck from './views/ContractCheck.vue'
 import QueueView from './views/QueueView.vue'
+import FieldMapping from './views/FieldMapping.vue'
 import SettingsView from './views/SettingsView.vue'
 
 const view = ref('files')

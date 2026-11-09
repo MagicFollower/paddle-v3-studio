@@ -52,6 +52,55 @@
         <div class="muted" v-if="source && !source.reachable" style="margin-top:6px">{{ source.hint }} · {{ source.error }}</div>
       </div>
 
+      <div class="panel block">
+        <div class="sec-title">LLM 字段映射（API 端点接入）</div>
+        <div class="row" style="flex-wrap:wrap">
+          <el-tag :type="llm?.enabled ? 'success' : 'info'" size="small">{{ llm?.enabled ? '映射阶段已启用' : '映射阶段已关闭' }}</el-tag>
+          <el-tag :type="llm?.reachable ? 'success' : 'danger'" size="small">{{ llm?.reachable ? '端点可达' : '端点不可达' }}</el-tag>
+          <el-tag :type="llm?.modelPresent ? 'success' : (llm?.modelPresent === false ? 'danger' : 'info')" size="small">
+            {{ llm?.modelPresent ? '模型已暴露' : (llm?.modelPresent === false ? '模型未暴露' : '模型名未核对') }}
+          </el-tag>
+          <el-tag v-if="llm?.apiKeySet" size="small" type="info">已设 API Key</el-tag>
+          <el-button size="small" :icon="Refresh" :loading="llmProbing" @click="checkLlm">检测 LLM 可用性</el-button>
+        </div>
+        <div class="muted mono" style="margin-top:6px;word-break:break-all">{{ llm?.endpoint }} · model={{ llm?.model }}</div>
+        <div class="muted" v-if="llm?.reason" style="margin-top:4px">{{ llm.reason }}</div>
+        <div class="muted" style="margin-top:4px">
+          后端以客户端方式调用 OpenAI 兼容端点，<b>启动不拉起模型</b>。本地模型双击 <span class="mono">llm-server.cmd</span>
+          手动启动（默认 http://127.0.0.1:9931）；也可在下方「LLM 字段映射」分组填写远程/第三方端点 + 模型名 + API Key。
+          启用 LLM 时纳入解析前门控；表头→业务字段对应关系在左侧「字段映射」页编辑。
+        </div>
+      </div>
+
+      <div class="panel block">
+        <div class="sec-title">模型可用性总览（解析前需全部通过）</div>
+        <div class="row" style="margin-bottom:8px;flex-wrap:wrap">
+          <el-button size="small" :icon="Refresh" :loading="modelsProbing" @click="checkAllModels">检测所有模型</el-button>
+          <el-tag :type="models?.ok ? 'success' : 'danger'" size="small">
+            {{ models?.ok ? '全部可用，允许解析' : '存在不可用模型，解析将被拒绝' }}
+          </el-tag>
+        </div>
+        <el-table :data="models?.models || []" size="small" border>
+          <el-table-column prop="name" label="模型" min-width="180" show-overflow-tooltip />
+          <el-table-column label="类型" width="110">
+            <template #default="{ row }">{{ row.kind === 'llm' ? 'LLM 端点' : 'Paddle 本地' }}</template>
+          </el-table-column>
+          <el-table-column label="必需" width="70" align="center">
+            <template #default="{ row }">{{ row.required ? '是' : '否' }}</template>
+          </el-table-column>
+          <el-table-column label="状态" width="90">
+            <template #default="{ row }">
+              <el-tag :type="row.available ? 'success' : (row.required ? 'danger' : 'info')" size="small">
+                {{ row.available ? '可用' : '不可用' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="reason" label="说明" min-width="220" show-overflow-tooltip />
+        </el-table>
+        <el-alert v-if="models && !models.ok" type="error" :closable="false" show-icon style="margin-top:8px"
+          :title="'解析门控未通过：' + (models.errors || []).join('；')" />
+      </div>
+
       <div class="panel block" v-for="g in schema?.groups || []" :key="g.key">
         <div class="sec-title">{{ g.label }}</div>
         <el-form label-width="230px" size="small">
@@ -71,7 +120,11 @@
                   <el-button size="small" text type="primary" @click="cfgForm[g.key].colors[c.key] = c.default">还原</el-button>
                 </div>
               </div>
+              <el-input v-else-if="f.type === 'textarea'" v-model="cfgForm[g.key][f.key]" type="textarea"
+                :rows="f.rows || 6" style="width:560px;max-width:100%" />
               <el-input v-else v-model="cfgForm[g.key][f.key]" style="width:320px" />
+              <el-button v-if="f.default !== undefined" size="small" text type="primary"
+                @click="cfgForm[g.key][f.key] = f.default">还原默认</el-button>
               <el-tooltip v-if="f.help" placement="top" effect="light" :show-after="150" popper-class="help-popper">
                 <template #content>
                   <div class="help-tip">
@@ -104,10 +157,14 @@ import { applyColors, loadDisplay } from '../display.js'
 const schema = ref(null)
 const status = ref(null)
 const source = ref(null)
+const llm = ref(null)
+const models = ref(null)
 const cfgForm = reactive({ parse: {}, model: {}, contract: {} })
 const saving = ref(false)
 const probing = ref(false)
 const testing = ref(false)
+const llmProbing = ref(false)
+const modelsProbing = ref(false)
 
 const dev = computed(() => status.value?.device)
 const modelRows = computed(() => {
@@ -121,6 +178,27 @@ async function reload() {
   status.value = st
   for (const g of Object.keys(cfgForm)) delete cfgForm[g]
   Object.assign(cfgForm, JSON.parse(JSON.stringify(cfg)))
+  try { llm.value = await api.llmStatus() } catch { llm.value = null }
+  try { models.value = await api.modelsAvailability() } catch { models.value = null }
+}
+
+async function checkLlm() {
+  llmProbing.value = true
+  try {
+    const av = await api.llmCheck()
+    llm.value = { ...(llm.value || {}), ...av, available: av.available }
+    ElMessage[av.available ? 'success' : 'warning'](
+      av.available ? `LLM 端点可用：${av.endpoint}（${av.model}）` : `LLM 不可用：${av.reason || ''}`)
+  } catch (e) { ElMessage.error(e.message) } finally { llmProbing.value = false }
+}
+
+async function checkAllModels() {
+  modelsProbing.value = true
+  try {
+    models.value = await api.modelsAvailability()
+    ElMessage[models.value.ok ? 'success' : 'error'](
+      models.value.ok ? '所有模型可用，允许解析' : `解析门控未通过：${(models.value.errors || []).join('；')}`)
+  } catch (e) { ElMessage.error(e.message) } finally { modelsProbing.value = false }
 }
 
 async function checkSource() {
