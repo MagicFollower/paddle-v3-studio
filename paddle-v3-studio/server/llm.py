@@ -236,6 +236,29 @@ def understand_table(html: str, cells=None, mapping: dict = None) -> dict:
             "contractNo": obj.get("contractNo"), "method": "llm-table"}
 
 
+def _clean_html(text: str) -> str:
+    """从模型输出抠出标准 HTML 表格（容忍代码块/前后解释）。"""
+    t = (text or "").strip()
+    t = re.sub(r"^```(?:html)?\s*", "", t)
+    t = re.sub(r"\s*```$", "", t)
+    s = t.find("<table")
+    e = t.rfind("</table>")
+    return t[s:e + 8] if s != -1 and e != -1 else t
+
+
+def normalize_table(html: str, mapping: dict = None) -> str:
+    """LLM 表格规范化：把不规则表格（键值对/转置/合并）重排为标准行列 HTML，供正规
+    table_to_entries 复用解析。LLM 只做结构重排（提示词约束只 rearrange 现有值、不增删改），
+    值由后续确定性解析提取。返回规范化 HTML 字符串（失败/空返回空串）。"""
+    if not (html or "").strip():
+        return ""
+    system = (_cfg().get("normalize_prompt") or cfgmod.DEFAULT_NORMALIZE_PROMPT).strip()
+    user = f"不规则表格HTML:\n{html}\n\n输出规范HTML:"
+    out = chat([{"role": "system", "content": system},
+                {"role": "user", "content": user}], max_tokens=2000)
+    return _clean_html(out)
+
+
 def _all_headers(extracted: dict) -> list:
     seen, out = set(), []
     for t in (extracted or {}).get("tables", []):

@@ -241,29 +241,40 @@ def start_contract_job(contract_id: str) -> dict:
                     html = t.get("html", "")
                     reg = ct.assess_regularity(html)
                     _log(job, "extract", f"第 {pr['page']} 页表格判定：{reg['layout']}"
-                                         f"（{'规则→启发式精确解析' if reg['regular'] else '不规则→4B LLM 结构理解'}）")
+                                         f"（{'规则→启发式精确解析' if reg['regular'] else '不规则→4B 规范化→复用正规解析'}）")
                     method = "heuristic"
+                    normalized_html = None
                     parsed = ct.table_to_entries(html, fallback=carry, cells=t.get("cellBoxesNorm"))
-                    # 动态路由：不规则表格优先 4B LLM 结构理解；规则表格走启发式（空结果时 LLM 兜底）。
+                    # 动态路由：不规则表格 → 4B LLM 规范化为标准行列 → 复用正规 table_to_entries 解析；
+                    # 规范化解析不出 → 结构理解直接抽取兜底。规则表格空结果同样走 LLM 兜底。
                     need_llm = (not reg["regular"]) or (not parsed.get("entries"))
                     if need_llm and html.strip() and llm_enabled:
                         _check_cancel(job)
                         try:
-                            alt = llmmod.understand_table(html, cells=t.get("cellBoxesNorm"))
-                            if alt.get("entries"):
-                                parsed, method = alt, "llm-table"
-                                _log(job, "extract", f"第 {pr['page']} 页 {reg['layout']} 表格经 4B LLM 结构理解抽取 {len(alt['entries'])} 条")
-                                if not no_info.get("found") and alt.get("contractNo"):
-                                    no_info["found"] = {"number": alt["contractNo"], "page": pr["page"], "source": "table-llm"}
+                            norm = llmmod.normalize_table(html)
+                            norm_parsed = ct.table_to_entries(norm) if norm.strip() else {"entries": []}
+                            if norm_parsed.get("entries"):
+                                parsed, method, normalized_html = norm_parsed, "llm-normalize", norm
+                                _log(job, "extract", f"第 {pr['page']} 页 {reg['layout']} 表格经 4B 规范化→复用正规解析抽取 {len(norm_parsed['entries'])} 条")
+                            else:
+                                alt = llmmod.understand_table(html, cells=t.get("cellBoxesNorm"))
+                                if alt.get("entries"):
+                                    parsed, method = alt, "llm-table"
+                                    _log(job, "extract", f"第 {pr['page']} 页规范化无效，回退结构理解抽取 {len(alt['entries'])} 条")
+                                    if not no_info.get("found") and alt.get("contractNo"):
+                                        no_info["found"] = {"number": alt["contractNo"], "page": pr["page"], "source": "table-llm"}
                         except llmmod.LLMError as e:
-                            _log(job, "extract", f"第 {pr['page']} 页 LLM 结构理解失败：{e}（保留启发式结果）")
+                            _log(job, "extract", f"第 {pr['page']} 页 LLM 规范化/结构理解失败：{e}（保留启发式结果）")
                     cm = parsed.pop("colmap", None)
                     if cm:
                         carry = {"headers": parsed.get("headers"), "colmap": cm}
-                    tables.append({"page": pr["page"], "bbox": t.get("bbox"),
-                                   "bboxNorm": t.get("bboxNorm"), **parsed,
-                                   "method": method, "layout": reg["layout"],
-                                   "regular": reg["regular"], "regularityReasons": reg["reasons"]})
+                    block = {"page": pr["page"], "bbox": t.get("bbox"),
+                             "bboxNorm": t.get("bboxNorm"), **parsed,
+                             "method": method, "layout": reg["layout"],
+                             "regular": reg["regular"], "regularityReasons": reg["reasons"]}
+                    if normalized_html:
+                        block["normalizedHtml"] = normalized_html   # 规范化中间产物，供界面审计
+                    tables.append(block)
                     t.pop("cellBoxesNorm", None)   # 单元格框仅用于定位，不持久化以免结果膨胀
             extracted = {"contractNo": no_info["found"], "noCandidates": no_info["candidates"],
                          "crossPage": no_info["crossPage"], "tables": tables}
