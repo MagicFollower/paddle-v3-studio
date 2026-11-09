@@ -144,13 +144,14 @@
               <div class="sec-title">合同明细（表格区域提取）</div>
               <div class="hint-block">
                 流程：先精确判别表格规范性 → <b>规则表格</b>（标准/合并表头/分节）走启发式精确解析；
-                <b>不规则表格</b>（键值对/转置/无表头）动态调用 <b>4B LLM 结构理解</b>抽取。下方按表标注实际路径与形态。
+                <b>不规则表格</b>（键值对/转置/无表头）动态调用 <b>4B LLM 规范化</b>为标准行列，再<b>复用正规解析</b>
+                （规范化无效时回退结构理解兜底）。下方按表标注实际路径与形态，可审计规范化结果。
               </div>
               <div v-for="(t, ti) in extracted?.tables || []" :key="ti" class="table-block" :class="{ irregular: t.regular === false }">
                 <div class="table-meta">
                   <span class="muted">第 {{ t.page }} 页表格 · {{ t.entries.length }} 条明细<span v-if="t.totalRow"> · {{ t.totalRow.text }}</span></span>
-                  <el-tag size="small" :type="t.method === 'llm-table' ? 'warning' : 'success'" effect="dark">
-                    {{ t.method === 'llm-table' ? '4B LLM 结构理解' : '启发式精确解析' }}
+                  <el-tag size="small" :type="t.method === 'heuristic' ? 'success' : 'warning'" effect="dark">
+                    {{ METHOD_LABEL[t.method] || t.method }}
                   </el-tag>
                   <el-tag size="small" effect="plain">{{ LAYOUT_LABEL[t.layout] || t.layout || '标准表' }}</el-tag>
                   <el-tag size="small" :type="t.regular === false ? 'danger' : 'info'" effect="plain">
@@ -158,7 +159,7 @@
                   </el-tag>
                 </div>
                 <div v-if="t.regular === false" class="irregular-hint">
-                  不规则表格（{{ (t.regularityReasons || []).join('；') }}）→ 经 4B LLM 结构理解抽取，结果供人工复核。
+                  不规则表格（{{ (t.regularityReasons || []).join('；') }}）→ {{ t.method === 'llm-normalize' ? '经 4B 规范化为标准行列后复用正规解析' : '经 4B 结构理解兜底抽取' }}，结果供人工复核。
                 </div>
                 <el-table :data="t.entries" size="small" border max-height="260" highlight-current-row
                   :row-class-name="rawRowClass" :cell-class-name="cellClass" @row-click="(row) => selectEntry(t, row)">
@@ -168,6 +169,15 @@
                   <el-table-column prop="priceText" label="单价" width="80" />
                   <el-table-column prop="amountText" label="金额" width="90" />
                 </el-table>
+                <el-collapse v-if="t.normalizedHtml" class="norm-audit">
+                  <el-collapse-item title="查看 4B 规范化后的标准表格（审计中间产物）">
+                    <table class="norm-table">
+                      <tr v-for="(row, ri) in normalizedGrid(t.normalizedHtml)" :key="ri">
+                        <component :is="ri === 0 ? 'th' : 'td'" v-for="(c, ci) in row" :key="ci">{{ c }}</component>
+                      </tr>
+                    </table>
+                  </el-collapse-item>
+                </el-collapse>
               </div>
               <el-empty v-if="!extracted?.tables?.length" description="未识别到明细表格" :image-size="50" />
             </div>
@@ -360,6 +370,15 @@ import PageViewer from '../components/PageViewer.vue'
 
 const FIELD_LABEL = { itemName: '品名', name: '品名', quantity: '数量', unitPrice: '单价', amount: '金额' }
 const LAYOUT_LABEL = { standard: '标准表', 'merged-header': '合并表头/分节', transposed: '转置表', 'key-value': '键值对表', headerless: '无表头', empty: '空表' }
+const METHOD_LABEL = { heuristic: '启发式精确解析', 'llm-normalize': '4B 规范化→复用解析', 'llm-table': '4B 结构理解兜底' }
+// 安全地把规范化 HTML 解析为纯文本二维表（DOMParser textContent，杜绝 XSS），供审计视图渲染
+function normalizedGrid(html) {
+  if (!html) return []
+  try {
+    const doc = new DOMParser().parseFromString(html, 'text/html')
+    return [...doc.querySelectorAll('tr')].map(tr => [...tr.querySelectorAll('td,th')].map(td => td.textContent.trim()))
+  } catch { return [] }
+}
 const SOURCE_LABEL = { 'same-line': '单行', 'next-line': '多行(下行)', 'split-line': '多行(折行)' }
 
 const contracts = ref([])
@@ -791,6 +810,10 @@ watch(() => props.autoOpenId, async (id) => {
 .table-block.irregular { border: 1px dashed var(--match-bad); border-radius: 6px; padding: 8px; background: #fff7ed; }
 .table-meta { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
 .irregular-hint { font-size: 12px; color: var(--match-bad); margin-bottom: 6px; }
+.norm-audit { margin-top: 6px; }
+.norm-table { border-collapse: collapse; width: 100%; font-size: 12px; }
+.norm-table th, .norm-table td { border: 1px solid var(--el-border-color, #dcdfe6); padding: 3px 6px; text-align: left; }
+.norm-table th { background: var(--el-fill-color-light, #f5f7fa); }
 .check-row { display: flex; gap: 6px; align-items: center; font-size: 13px; padding: 3px 0; flex-wrap: wrap; }
 .cross-row { display: flex; gap: 8px; align-items: center; font-size: 12px; padding: 2px 0; }
 .help-icon { color: var(--text-3); cursor: help; font-size: 15px; }
