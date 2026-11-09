@@ -132,12 +132,15 @@ Vue 3 + Element Plus 前端（固定版本 vue 3.5.44 / element-plus 2.14.7 / vi
   独立存于 `data/field_mapping.json`。
 - **触发**：每次合同解析自动跑（端点不可用时优雅跳过并留痕）；也可在合同详情页点「LLM映射」对已解析合同
   单独重跑（`POST /api/contracts/:id/llm-map`）。
-- **极不规范表格兜底（建议 4B）**：合同号+明细同表但行列极不规范（键值对/转置/多行合并表头/分类小计穿插）时，
-  启发式 `table_to_entries` 先做确定性快修（多行表头合并、分类行/小计过滤）；仍解析不出明细的表格交
-  `llm.understand_table` 用端点模型（建议 `Spark-X2.6-4B`）理解结构抽取，返回同形状结果复用 llm_map/verify 链路。
-  结构理解提示词在 `config.llm.table_prompt`（可配置/还原默认）。校验对「未识别到合计行」跳过总额比对（不误判不符）。
-  真实 PDF 验收：`scripts/make_irregular_demo.py --run`（键值/转置/合并三类，全 matched）；
-  形态判据：`scripts/check_table_irregular.py`（6 类，4 类快修达标 + 2 类标记需 LLM，`--selftest` 自证）。
+- **极不规范表格规范化（建议 4B）**：合同号+明细同表但行列极不规范（键值对/转置/多行合并表头/分类小计穿插）时，
+  `assess_regularity` 精确判别规范性动态路由：规则表→启发式 `table_to_entries`（含多行表头合并、分类行/小计过滤快修）；
+  不规则表→`llm.normalize_table` 用端点模型（建议 `Spark-X2.6-4B`）**规范化为标准行列 HTML**，再**复用正规 `table_to_entries`**
+  解析（LLM 只管结构重排、值由确定性解析，method=llm-normalize）；规范化解析不出时回退 `llm.understand_table` 结构理解兜底。
+  规范化中间产物 `normalizedHtml` 供界面折叠审计（纯文本渲染防 XSS）。提示词 `config.llm.normalize_prompt`/`table_prompt`
+  均可配置/还原默认。校验对「未识别到合计行」跳过总额比对（不误判不符）。
+  真实 PDF 验收：`scripts/make_irregular_demo.py --run`（8 案例键值/转置/合并/rowspan/表内合同号/分节，全 matched）；
+  形态判据：`scripts/check_table_irregular.py`（6 类，4 类快修达标 + 2 类标记需 LLM，`--selftest` 自证）；
+  归档：`doc/irregular-table-acceptance.md` + `doc/irregular-acceptance-results.json`。
 
 ## 解析前全模型可用性门控
 

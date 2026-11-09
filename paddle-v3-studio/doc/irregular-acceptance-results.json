@@ -11,7 +11,7 @@
           "page": 1,
           "layout": "transposed",
           "regular": false,
-          "method": "llm-table",
+          "method": "llm-normalize",
           "entries": 1
         }
       ],
@@ -30,7 +30,7 @@
           "page": 1,
           "layout": "transposed",
           "regular": false,
-          "method": "llm-table",
+          "method": "llm-normalize",
           "entries": 2
         }
       ],
@@ -68,7 +68,7 @@
           "page": 1,
           "layout": "key-value",
           "regular": false,
-          "method": "llm-table",
+          "method": "llm-normalize",
           "entries": 2
         }
       ],
@@ -87,7 +87,7 @@
           "page": 1,
           "layout": "transposed",
           "regular": false,
-          "method": "llm-table",
+          "method": "llm-normalize",
           "entries": 3
         }
       ],
@@ -125,7 +125,7 @@
           "page": 1,
           "layout": "transposed",
           "regular": false,
-          "method": "llm-table",
+          "method": "llm-normalize",
           "entries": 1
         }
       ],
