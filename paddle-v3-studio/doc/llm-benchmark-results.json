@@ -1,0 +1,328 @@
+{
+  "generatedAt": "2026-11-09 10:58:06",
+  "model": "C:\\Users\\webtu\\Desktop\\OCR-ALONE\\MODEL-V3\\llms\\Spark-X2.6-1.7B-Q4_K_M.gguf",
+  "config": {
+    "enabled": true,
+    "base_url": "http://127.0.0.1:9931",
+    "model": "spark-x2.6",
+    "api_key": "",
+    "timeout": 90,
+    "system_prompt": "你是合同明细表格的「表头→业务字段」映射专家，服务于 OCR 解析后的合同明细自动标准化流水线。\n\n【任务】OCR 已从合同表格识别出一行中文表头（不同合同写法各异，可能含空格或轻微噪声）。你的唯一任务：把每个实际中文表头映射到给定的目标业务字段英文缩写。\n\n【规则】\n1. 只能从给定的目标业务字段中选择，严禁发明列表之外的字段名。\n2. 多对一：多个同义中文表头（如「品名」「物料名称」「货物名称」「产品名称」）可映射到同一个英文字段；逐个表头独立判断其语义最匹配的字段。\n3. 每个字段的中文别名仅作参考提示，以表头真实语义为准；表头含空格或 OCR 噪声（如「品 名」「数 量」）应先归一化再匹配。\n4. 语义不符或无法确定的表头，值用 null，不要强行映射。\n5. 常见对应：序号/编号/项次/行号→排序字段；名称类→品名字段；规格/型号→规格；单位/计量单位→单位；数量/数目→数量；单价/含税单价→单价；金额/总价/小计/含税金额→金额（最终以给定的目标字段为准）。\n\n【输出】只输出一个 JSON 对象：键为中文表头原文（保持原样，含空格），值为目标英文字段缩写或 null。不要输出任何解释、思考过程、Markdown 代码块标记或多余文字。\n示例：表头 [\"品名\",\"数量\"]、目标字段 itemName(品名)/quantity(数量) → 输出 {\"品名\":\"itemName\",\"数量\":\"quantity\"}",
+    "model_path": "",
+    "device": "auto",
+    "gpu_layers": 99,
+    "ctx_size": 4096,
+    "port": 9931
+  },
+  "partA": {
+    "availability": {
+      "required": true,
+      "enabled": true,
+      "endpoint": "http://127.0.0.1:9931",
+      "model": "spark-x2.6",
+      "available": true,
+      "reachable": true,
+      "modelPresent": true,
+      "models": [
+        "spark-x2.6",
+        "spark-x2.6"
+      ],
+      "reason": null
+    },
+    "endpoint": "http://127.0.0.1:9931",
+    "serverStartupMs": 1788.0,
+    "overallAccuracy": 1.0,
+    "correctHeaders": 32,
+    "totalHeaders": 32,
+    "sampleUsage": {
+      "completion_tokens": 41,
+      "prompt_tokens": 576,
+      "total_tokens": 617,
+      "prompt_tokens_details": {
+        "cached_tokens": 541
+      }
+    },
+    "cases": [
+      {
+        "case": "标准表头",
+        "headers": [
+          "序号",
+          "品名",
+          "规格型号",
+          "单位",
+          "数量",
+          "单价(元)",
+          "金额(元)"
+        ],
+        "expected": {
+          "序号": "sortOrder",
+          "品名": "itemName",
+          "规格型号": "spec",
+          "单位": "unit",
+          "数量": "quantity",
+          "单价(元)": "unitPrice",
+          "金额(元)": "amount"
+        },
+        "got": {
+          "序号": "sortOrder",
+          "品名": "itemName",
+          "规格型号": "spec",
+          "单位": "unit",
+          "数量": "quantity",
+          "单价(元)": "unitPrice",
+          "金额(元)": "amount"
+        },
+        "correct": 7,
+        "total": 7,
+        "accuracy": 1.0,
+        "latencyMs": 394.9
+      },
+      {
+        "case": "物料表头",
+        "headers": [
+          "项次",
+          "物料名称",
+          "规格",
+          "计量单位",
+          "采购数量",
+          "含税单价",
+          "含税金额"
+        ],
+        "expected": {
+          "项次": "sortOrder",
+          "物料名称": "itemName",
+          "规格": "spec",
+          "计量单位": "unit",
+          "采购数量": "quantity",
+          "含税单价": "unitPrice",
+          "含税金额": "amount"
+        },
+        "got": {
+          "项次": "sortOrder",
+          "物料名称": "itemName",
+          "规格": "spec",
+          "计量单位": "unit",
+          "采购数量": "quantity",
+          "含税单价": "unitPrice",
+          "含税金额": "amount"
+        },
+        "correct": 7,
+        "total": 7,
+        "accuracy": 1.0,
+        "latencyMs": 220.1
+      },
+      {
+        "case": "货物表头",
+        "headers": [
+          "行号",
+          "货物名称",
+          "型号",
+          "单位",
+          "数目",
+          "单价",
+          "总价"
+        ],
+        "expected": {
+          "行号": "sortOrder",
+          "货物名称": "itemName",
+          "型号": "spec",
+          "单位": "unit",
+          "数目": "quantity",
+          "单价": "unitPrice",
+          "总价": "amount"
+        },
+        "got": {
+          "行号": "sortOrder",
+          "货物名称": "itemName",
+          "型号": "spec",
+          "单位": "unit",
+          "数目": "quantity",
+          "单价": "unitPrice",
+          "总价": "amount"
+        },
+        "correct": 7,
+        "total": 7,
+        "accuracy": 1.0,
+        "latencyMs": 209.9
+      },
+      {
+        "case": "多对一同义列",
+        "headers": [
+          "序号",
+          "品名",
+          "产品名称",
+          "数量"
+        ],
+        "expected": {
+          "序号": "sortOrder",
+          "品名": "itemName",
+          "产品名称": "itemName",
+          "数量": "quantity"
+        },
+        "got": {
+          "序号": "sortOrder",
+          "品名": "itemName",
+          "产品名称": "itemName",
+          "数量": "quantity"
+        },
+        "correct": 4,
+        "total": 4,
+        "accuracy": 1.0,
+        "latencyMs": 151.1
+      },
+      {
+        "case": "部分缺失表头",
+        "headers": [
+          "品名",
+          "数量",
+          "金额"
+        ],
+        "expected": {
+          "品名": "itemName",
+          "数量": "quantity",
+          "金额": "amount"
+        },
+        "got": {
+          "品名": "itemName",
+          "数量": "quantity",
+          "金额": "amount"
+        },
+        "correct": 3,
+        "total": 3,
+        "accuracy": 1.0,
+        "latencyMs": 121.9
+      },
+      {
+        "case": "OCR空格噪声",
+        "headers": [
+          "品 名",
+          "数 量",
+          "单 价",
+          "金 额"
+        ],
+        "expected": {
+          "品 名": "itemName",
+          "数 量": "quantity",
+          "单 价": "unitPrice",
+          "金 额": "amount"
+        },
+        "got": {
+          "品 名": "itemName",
+          "数 量": "quantity",
+          "单 价": "unitPrice",
+          "金 额": "amount"
+        },
+        "correct": 4,
+        "total": 4,
+        "accuracy": 1.0,
+        "latencyMs": 153.5
+      }
+    ]
+  },
+  "partB": {
+    "contractId": "ct-8fbc754b",
+    "contractNo": "HT-2026-001",
+    "pdf": "demo-crosspage-partial-001.pdf",
+    "pdfBytes": 87678,
+    "pageCount": 2,
+    "stagePath": [
+      "convert",
+      "predict",
+      "extract",
+      "llm_map",
+      "verify",
+      "persist"
+    ],
+    "crossPage": {
+      "pagesWithTable": [
+        1,
+        2
+      ],
+      "tableBlocks": 2,
+      "totalEntries": 33,
+      "entriesPerPage": {
+        "1": 19,
+        "2": 14
+      }
+    },
+    "mapped": {
+      "status": "ok",
+      "device": null,
+      "method": "llm",
+      "entryCount": 33,
+      "fields": [
+        "sortOrder",
+        "itemName",
+        "spec",
+        "unit",
+        "quantity",
+        "unitPrice",
+        "amount"
+      ],
+      "headerMap": {
+        "序号": "sortOrder",
+        "物料名称": "itemName",
+        "规格型号": "spec",
+        "计量单位": "unit",
+        "采购数量": "quantity",
+        "含税单价": "unitPrice",
+        "含税金额": "amount"
+      },
+      "firstEntry": {
+        "sortOrder": "1",
+        "itemName": "联想 ThinkPad T14 笔记 本",
+        "spec": "i7/16G/512G",
+        "unit": "台",
+        "quantity": "10",
+        "unitPrice": "6999.00",
+        "amount": "69990.00",
+        "page": 1,
+        "rowBoxNorm": [
+          137.88,
+          368.99,
+          853.57,
+          438.34
+        ]
+      }
+    },
+    "verify": {
+      "status": "mismatch",
+      "matchSource": "mapped",
+      "itemComparisonRows": 33,
+      "matchedRows": 3,
+      "ocrOnlyRows_notInSource": 30,
+      "checks": [
+        {
+          "key": "contract_no",
+          "ok": true,
+          "detail": "数据源命中合同 HT-2026-001"
+        },
+        {
+          "key": "cross_page",
+          "ok": true,
+          "detail": "编号在 1 页出现 1 次，均一致"
+        },
+        {
+          "key": "items_found",
+          "ok": true,
+          "detail": "提取到 33 条明细（LLM 映射业务字段）"
+        },
+        {
+          "key": "item_count",
+          "ok": false,
+          "detail": "文件 33 行 / 数据源 3 行"
+        },
+        {
+          "key": "total_amount",
+          "ok": false,
+          "detail": "文件 147491.0 / 数据源 87986.0"
+        }
+      ]
+    },
+    "timing": {
+      "endToEndMs": 26677.2,
+      "llmMapStageSeconds": 0.242,
+      "jobTotalSeconds": 26.501
+    }
+  }
+}
