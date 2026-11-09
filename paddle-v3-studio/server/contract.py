@@ -378,6 +378,47 @@ def _group_cell_rows(cells):
     return rows
 
 
+def assess_regularity(html: str) -> dict:
+    """精确判别表格规范性，动态决定是否需 4B LLM 结构理解。
+    regular=True：存在可识别列表头（标准/合并表头/分节，启发式+快修可精确解析）；
+    regular=False：转置/键值对/无表头（启发式无法按列提取，需 LLM 结构理解）。
+    返回 {regular, layout, reasons, merge_count, header_found}，layout 供界面差异化展示。"""
+    grid = html_table_to_grid(html)
+    if not grid:
+        return {"regular": True, "layout": "empty", "reasons": [], "merge_count": 0, "header_found": False}
+    merge_count = len(re.findall(r'(?:rowspan|colspan)\s*=\s*["\']?\s*[2-9]', html or "", re.I))
+    # 列表头探测：某行同时含品名类 + 数量/单价/金额类列标签
+    header_found = False
+    for row in grid[:4]:
+        cm = set()
+        for c in row:
+            k = _match_col(c)
+            if k:
+                cm.add(k)
+        if "name" in cm and ("qty" in cm or "amount" in cm or "price" in cm):
+            header_found = True
+            break
+    first_col_labels = sum(1 for r in grid if r and _match_col(r[0]))
+    label_cells = sum(1 for r in grid for c in r if _match_col(c))
+    other_col_labels = label_cells - first_col_labels
+    if header_found:
+        regular = True
+        if merge_count:
+            layout, reasons = "merged-header", [f"含合并单元格({merge_count})，启发式快修处理多行表头/分类行"]
+        else:
+            layout, reasons = "standard", ["标准行列列表头，启发式精确解析"]
+    else:
+        regular = False
+        if first_col_labels >= 3 and other_col_labels < 2:
+            layout, reasons = "transposed", ["字段竖排为行（转置表），无列表头，启发式无法按列提取"]
+        elif label_cells >= 3:
+            layout, reasons = "key-value", ["标签-值交替（键值对表），无列表头"]
+        else:
+            layout, reasons = "headerless", ["无可识别列表头"]
+    return {"regular": regular, "layout": layout, "reasons": reasons,
+            "merge_count": merge_count, "header_found": header_found}
+
+
 def table_to_entries(html: str, fallback: dict = None, cells=None) -> dict:
     grid = html_table_to_grid(html)
     if not grid:

@@ -239,26 +239,31 @@ def start_contract_job(contract_id: str) -> dict:
             for pr in page_results:
                 for t in pr.get("tables", []):
                     html = t.get("html", "")
-                    parsed = ct.table_to_entries(html, fallback=carry,
-                                                 cells=t.get("cellBoxesNorm"))
-                    # 不规则表格兜底：启发式解析不出明细（键值对/转置/复杂合并）且 LLM 启用 →
-                    # 交端点（建议 4B）做结构理解抽取，返回同形状结果复用 llm_map/verify 链路。
-                    if not parsed.get("entries") and html.strip() and llm_enabled:
+                    reg = ct.assess_regularity(html)
+                    _log(job, "extract", f"第 {pr['page']} 页表格判定：{reg['layout']}"
+                                         f"（{'规则→启发式精确解析' if reg['regular'] else '不规则→4B LLM 结构理解'}）")
+                    method = "heuristic"
+                    parsed = ct.table_to_entries(html, fallback=carry, cells=t.get("cellBoxesNorm"))
+                    # 动态路由：不规则表格优先 4B LLM 结构理解；规则表格走启发式（空结果时 LLM 兜底）。
+                    need_llm = (not reg["regular"]) or (not parsed.get("entries"))
+                    if need_llm and html.strip() and llm_enabled:
                         _check_cancel(job)
                         try:
                             alt = llmmod.understand_table(html, cells=t.get("cellBoxesNorm"))
                             if alt.get("entries"):
-                                parsed = alt
-                                _log(job, "extract", f"第 {pr['page']} 页不规则表格经 LLM 结构理解抽取 {len(alt['entries'])} 条")
+                                parsed, method = alt, "llm-table"
+                                _log(job, "extract", f"第 {pr['page']} 页 {reg['layout']} 表格经 4B LLM 结构理解抽取 {len(alt['entries'])} 条")
                                 if not no_info.get("found") and alt.get("contractNo"):
                                     no_info["found"] = {"number": alt["contractNo"], "page": pr["page"], "source": "table-llm"}
                         except llmmod.LLMError as e:
-                            _log(job, "extract", f"第 {pr['page']} 页 LLM 结构理解失败：{e}")
+                            _log(job, "extract", f"第 {pr['page']} 页 LLM 结构理解失败：{e}（保留启发式结果）")
                     cm = parsed.pop("colmap", None)
                     if cm:
                         carry = {"headers": parsed.get("headers"), "colmap": cm}
                     tables.append({"page": pr["page"], "bbox": t.get("bbox"),
-                                   "bboxNorm": t.get("bboxNorm"), **parsed})
+                                   "bboxNorm": t.get("bboxNorm"), **parsed,
+                                   "method": method, "layout": reg["layout"],
+                                   "regular": reg["regular"], "regularityReasons": reg["reasons"]})
                     t.pop("cellBoxesNorm", None)   # 单元格框仅用于定位，不持久化以免结果膨胀
             extracted = {"contractNo": no_info["found"], "noCandidates": no_info["candidates"],
                          "crossPage": no_info["crossPage"], "tables": tables}
