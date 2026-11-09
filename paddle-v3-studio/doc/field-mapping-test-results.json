@@ -1,0 +1,272 @@
+{
+  "cases": [
+    {
+      "file": "m01-standard-001",
+      "no": "HT-2026-001",
+      "layout": "regular",
+      "expectedEntries": 3,
+      "extractedEntries": 3,
+      "routes": [
+        {
+          "layout": "standard",
+          "method": "heuristic"
+        }
+      ],
+      "mappedFields": [
+        "amount",
+        "itemName",
+        "quantity",
+        "sortOrder",
+        "spec",
+        "unit",
+        "unitPrice"
+      ],
+      "missingFields": [],
+      "verifyStatus": "matched",
+      "matchSource": "mapped",
+      "pass": true
+    },
+    {
+      "file": "m02-material-002",
+      "no": "HT-2026-002",
+      "layout": "regular",
+      "expectedEntries": 2,
+      "extractedEntries": 2,
+      "routes": [
+        {
+          "layout": "standard",
+          "method": "heuristic"
+        }
+      ],
+      "mappedFields": [
+        "amount",
+        "itemName",
+        "quantity",
+        "sortOrder",
+        "spec",
+        "unit",
+        "unitPrice"
+      ],
+      "missingFields": [],
+      "verifyStatus": "matched",
+      "matchSource": "mapped",
+      "pass": true
+    },
+    {
+      "file": "m03-goods-003",
+      "no": "HT-2026-003",
+      "layout": "regular",
+      "expectedEntries": 1,
+      "extractedEntries": 1,
+      "routes": [
+        {
+          "layout": "standard",
+          "method": "heuristic"
+        }
+      ],
+      "mappedFields": [
+        "amount",
+        "itemName",
+        "quantity",
+        "sortOrder",
+        "spec",
+        "unit",
+        "unitPrice"
+      ],
+      "missingFields": [],
+      "verifyStatus": "matched",
+      "matchSource": "mapped",
+      "pass": true
+    },
+    {
+      "file": "m04-tax-001",
+      "no": "HT-2026-001",
+      "layout": "regular",
+      "expectedEntries": 3,
+      "extractedEntries": 3,
+      "routes": [
+        {
+          "layout": "key-value",
+          "method": "llm-normalize"
+        }
+      ],
+      "mappedFields": [
+        "amount",
+        "itemName",
+        "quantity",
+        "sortOrder",
+        "spec",
+        "taxAmount",
+        "taxRate",
+        "unit",
+        "unitPrice"
+      ],
+      "missingFields": [],
+      "verifyStatus": "matched",
+      "matchSource": "mapped",
+      "pass": true
+    },
+    {
+      "file": "m05-brand-002",
+      "no": "HT-2026-002",
+      "layout": "regular",
+      "expectedEntries": 2,
+      "extractedEntries": 2,
+      "routes": [
+        {
+          "layout": "key-value",
+          "method": "llm-normalize"
+        }
+      ],
+      "mappedFields": [
+        "amount",
+        "brand",
+        "itemName",
+        "origin",
+        "quantity",
+        "sortOrder",
+        "spec",
+        "unit",
+        "unitPrice"
+      ],
+      "missingFields": [],
+      "verifyStatus": "matched",
+      "matchSource": "mapped",
+      "pass": true
+    },
+    {
+      "file": "m06-mfr-001",
+      "no": "HT-2026-001",
+      "layout": "regular",
+      "expectedEntries": 3,
+      "extractedEntries": 3,
+      "routes": [
+        {
+          "layout": "standard",
+          "method": "heuristic"
+        }
+      ],
+      "mappedFields": [
+        "amount",
+        "itemName",
+        "manufacturer",
+        "quantity",
+        "sortOrder",
+        "spec",
+        "unit",
+        "unitPrice",
+        "warranty"
+      ],
+      "missingFields": [],
+      "verifyStatus": "matched",
+      "matchSource": "mapped",
+      "pass": true
+    },
+    {
+      "file": "m07-delivery-002",
+      "no": "HT-2026-002",
+      "layout": "regular",
+      "expectedEntries": 2,
+      "extractedEntries": 2,
+      "routes": [
+        {
+          "layout": "standard",
+          "method": "heuristic"
+        }
+      ],
+      "mappedFields": [
+        "amount",
+        "deliveryDate",
+        "itemName",
+        "quantity",
+        "remark",
+        "sortOrder",
+        "spec",
+        "unit",
+        "unitPrice"
+      ],
+      "missingFields": [],
+      "verifyStatus": "matched",
+      "matchSource": "mapped",
+      "pass": true
+    },
+    {
+      "file": "m08-kv-003",
+      "no": "HT-2026-003",
+      "layout": "kv",
+      "expectedEntries": 1,
+      "extractedEntries": 1,
+      "routes": [
+        {
+          "layout": "transposed",
+          "method": "llm-table"
+        }
+      ],
+      "mappedFields": [
+        "amount",
+        "itemName",
+        "quantity",
+        "spec",
+        "unit",
+        "unitPrice"
+      ],
+      "missingFields": [],
+      "verifyStatus": "matched",
+      "matchSource": "mapped",
+      "pass": true
+    },
+    {
+      "file": "m09-transposed-002",
+      "no": "HT-2026-002",
+      "layout": "transposed",
+      "expectedEntries": 2,
+      "extractedEntries": 2,
+      "routes": [
+        {
+          "layout": "transposed",
+          "method": "llm-table"
+        }
+      ],
+      "mappedFields": [
+        "amount",
+        "itemName",
+        "quantity",
+        "spec",
+        "unit",
+        "unitPrice"
+      ],
+      "missingFields": [],
+      "verifyStatus": "matched",
+      "matchSource": "mapped",
+      "pass": true
+    },
+    {
+      "file": "m10-merged-001",
+      "no": "HT-2026-001",
+      "layout": "merged",
+      "expectedEntries": 3,
+      "extractedEntries": 3,
+      "routes": [
+        {
+          "layout": "merged-header",
+          "method": "heuristic"
+        }
+      ],
+      "mappedFields": [
+        "amount",
+        "itemName",
+        "quantity",
+        "sortOrder",
+        "spec",
+        "unit",
+        "unitPrice"
+      ],
+      "missingFields": [],
+      "verifyStatus": "matched",
+      "matchSource": "mapped",
+      "pass": true
+    }
+  ],
+  "passed": 10,
+  "total": 10
+}
