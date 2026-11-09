@@ -96,10 +96,22 @@ def main():
         [str(ROOT / ".venv/Scripts/python.exe"), str(ROOT / "server/app.py")],
         env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     source_proc = None
+    local_llm = None
     try:
         if not wait_health(BASE):
             print("FATAL: backend did not come up")
             sys.exit(99)
+
+        # 后端为纯 API 客户端，不自行拉起模型；判据脚本手动起本地 LLM 供预检门控与映射使用
+        from llm_local import LocalLLM
+        local_llm = LocalLLM(port=9931)
+        try:
+            local_llm.start(timeout=90)
+            print("[llm] local model server up on 9931")
+        except Exception as e:
+            print(f"[llm] local model unavailable: {e}（LLM 相关判据将跳过/门控判据据此验证）")
+            local_llm = None
+        req("POST", "/api/config", {"llm": {"enabled": True, "base_url": "http://127.0.0.1:9931", "model": "spark-x2.6"}})
 
         # ---------- A 静态与契约 ----------
         check("A1 dist/index.html 存在", (ROOT / "dist/index.html").exists())
@@ -241,6 +253,9 @@ def main():
             boxed = [e for e in entries if e.get("rowBoxNorm")]
             check(f"C5b[{fname}] 明细行定位坐标已生成", len(entries) > 0 and len(boxed) == len(entries),
                   f"boxed={len(boxed)}/{len(entries)}")
+            check(f"C5c[{fname}] 明细保留表头→原值 cells（供 LLM 映射）",
+                  len(entries) > 0 and all(isinstance(e.get("cells"), dict) and e["cells"] for e in entries),
+                  f"withCells={sum(1 for e in entries if e.get('cells'))}/{len(entries)}")
             check(f"C6[{fname}] 表格区域有坐标", all(t.get("bbox") for t in payload["extracted"]["tables"]))
             rep = payload.get("report", {})
             check(f"C7[{fname}] 校验结局={expect_status}", rep.get("status") == expect_status,
@@ -282,12 +297,111 @@ def main():
         s, _, big = req("GET", "/api/entries?page=1&pageSize=200")
         check("D6 大页返回全部", len(big["items"]) == big["total"])
         check("D7 条目字段齐全", all(all(k in x for k in ("id", "name", "size", "ext", "pageCount", "uploadedAt", "type")) for x in big["items"]))
+
+        # ---------- E LLM 字段映射 ----------
+        import fieldmap as _fm
+        import llm as _llm
+        s, _, fm = req("GET", "/api/field-mapping")
+        check("E1 映射配置含 field/label/aliases", s == 200 and bool(fm.get("fields"))
+              and all(all(k in f for k in ("field", "label", "aliases")) for f in fm["fields"]))
+        s, _, _ = req("POST", "/api/field-mapping/validate", {"fields": [{"field": "1bad", "label": ""}]})
+        check("E2 非法映射被 400 拒", s == 400)
+        custom = {"fields": [{"field": "matName", "label": "品名", "aliases": ["名称", "品名"]},
+                             {"field": "qty", "label": "数量", "aliases": ["数量"]}]}
+        s, _, saved = req("POST", "/api/field-mapping", custom)
+        s2, _, got = req("GET", "/api/field-mapping")
+        check("E3 映射保存后读回一致", s == 200 and s2 == 200 and [f["field"] for f in got["fields"]] == ["matName", "qty"])
+        s, _, dft = req("POST", "/api/field-mapping/reset", {})
+        check("E4 恢复默认映射", s == 200 and len(dft["fields"]) >= 5)
+        # 确定性转换：别名精确优先（「规格」不被 matName 的「品名规格」抢走），值原样不改
+        _m = _fm.load_mapping()
+        _hm = _fm.alias_match(["序号", "品名", "规格", "数量", "单价", "金额"], _m)
+        check("E5 别名精确优先匹配（对齐后端字段名）", _hm.get("规格") == "spec" and _hm.get("品名") == "itemName" and _hm.get("金额") == "amount",
+              json.dumps(_hm, ensure_ascii=False))
+        _ex = {"contractNo": {"number": "HT-X"}, "tables": [{"page": 1, "headers": ["品名", "规格", "数量"],
+               "entries": [{"name": "甲", "cells": {"品名": "甲", "规格": "Q235", "数量": " 10 "}, "rowBoxNorm": [1, 2, 3, 4]}]}]}
+        _out = _fm.transform(_ex, _hm, _m, "ct-x")
+        _e0 = (_out.get("entries") or [{}])[0]
+        check("E6 转换重写为后端字段名且值 trim 不改数", _e0.get("itemName") == "甲" and _e0.get("spec") == "Q235"
+              and _e0.get("quantity") == "10" and _e0.get("rowBoxNorm") == [1, 2, 3, 4], json.dumps(_e0, ensure_ascii=False))
+        # 模型输出方向归一化（field→header 与 header→field 两种朝向都能抠出）
+        _j1 = _llm._extract_json('前言 {"品名":"matName","数量":"qty"} 后语')
+        _j2 = _llm._extract_json('```json\n{"matName":"品名"}\n```')
+        check("E7 JSON 抽取容忍代码块/前后缀", _j1 == {"品名": "matName", "数量": "qty"} and _j2 == {"matName": "品名"})
+        # 多对一：扁平配对归并 / 重复 field 行归并 / 多列同字段取值合并 / 冲突留痕
+        _pair = _fm.normalize_mapping({"mappings": [{"from": "品名", "to": "itemName"}, {"from": "物料名称", "to": "itemName"}, {"from": "数量", "to": "quantity"}]})
+        _itemName_f = next((f for f in _pair["fields"] if f["field"] == "itemName"), {})
+        check("E13 扁平多对一配对归并别名", len(_pair["fields"]) == 2 and _itemName_f.get("aliases") == ["品名", "物料名称"],
+              json.dumps(_pair, ensure_ascii=False))
+        _dup = _fm.normalize_mapping({"fields": [{"field": "itemName", "label": "品名", "aliases": ["品名"]}, {"field": "itemName", "label": "品名", "aliases": ["物料名称"]}]})
+        check("E14 重复 field 行归并（不报重复）", len(_dup["fields"]) == 1 and _dup["fields"][0]["aliases"] == ["品名", "物料名称"] and _fm.validate_mapping({"fields": [{"field": "itemName", "label": "品名"}, {"field": "itemName", "label": "品名"}]}) == [])
+        _ex2 = {"tables": [{"page": 1, "headers": ["品名", "产品名称", "数量"], "entries": [{"cells": {"品名": "甲", "产品名称": "", "数量": "5"}}]}]}
+        _o2 = _fm.transform(_ex2, {"品名": "itemName", "产品名称": "itemName", "数量": "quantity"}, _m, "ct-y")
+        check("E15 多列同字段非空优先合并", _o2["entries"][0].get("itemName") == "甲" and _o2["entries"][0].get("quantity") == "5",
+              json.dumps(_o2["entries"][0], ensure_ascii=False))
+        _ex3 = {"tables": [{"page": 1, "headers": ["品名", "产品名称"], "entries": [{"cells": {"品名": "甲", "产品名称": "乙"}}]}]}
+        _o3 = _fm.transform(_ex3, {"品名": "itemName", "产品名称": "itemName"}, _m, "ct-z")
+        check("E16 多列同字段冲突留痕", _o3["entries"][0].get("itemName") == "甲" and _o3["entries"][0].get("_conflicts", {}).get("itemName") == ["甲", "乙"],
+              json.dumps(_o3["entries"][0], ensure_ascii=False))
+        s, _, ls = req("GET", "/api/llm/status")
+        check("E8 LLM 端点状态如实（endpoint/model/available）", s == 200 and "endpoint" in ls and "model" in ls
+              and "available" in ls and "reachable" in ls,
+              f"endpoint={ls.get('endpoint')} model={ls.get('model')} available={ls.get('available')}")
+        s, _, stg = req("GET", "/api/stages")
+        check("E9 合同流水线含 llm_map 阶段", any(x["key"] == "llm_map" for x in stg.get("contract", [])))
+        # 全模型可用性门控：LLM 起来时总览 ok；把端点指向死端口时解析被 409 拒
+        s, _, ma = req("GET", "/api/models/availability")
+        check("E17 全模型可用性总览（Paddle+LLM）", s == 200 and isinstance(ma.get("models"), list)
+              and any(m["kind"] == "llm" for m in ma["models"]) and "ok" in ma,
+              f"ok={ma.get('ok')} n={len(ma.get('models', []))}")
+        if local_llm is not None:
+            check("E17b LLM 在线时门控通过", ma.get("ok") is True, f"errors={ma.get('errors')}")
+            req("POST", "/api/config", {"llm": {"base_url": "http://127.0.0.1:1"}})   # 死端口
+            img_g = (FIX / "upload-sample.png").read_bytes()
+            sg, _, jg = req("POST", "/api/documents", form={"file": ("gate.png", img_g, "image/png")})
+            sg2, _, eg = req("POST", "/api/parse", {"docId": jg.get("id")})
+            check("E18 LLM 端点不可达时解析被 409 拒", sg2 == 409 and "模型可用性未通过" in str(eg),
+                  f"status={sg2} body={str(eg)[:80]}")
+            req("DELETE", f"/api/documents/{jg.get('id')}")
+            req("POST", "/api/config", {"llm": {"base_url": "http://127.0.0.1:9931"}})   # 恢复
+        # 前置提示词：schema 字段 + 配置生效 + 留空回退默认 + 还原
+        s, _, sch = req("GET", "/api/schema")
+        _llm_grp = next((g for g in sch["groups"] if g["key"] == "llm"), {})
+        _sp_f = next((f for f in _llm_grp.get("fields", []) if f["key"] == "system_prompt"), {})
+        check("E19a schema 含前置提示词字段（textarea+默认）", _sp_f.get("type") == "textarea" and bool(_sp_f.get("default")))
+        _default_prompt = _sp_f.get("default")
+        req("POST", "/api/config", {"llm": {"system_prompt": "自定义前置提示词TEST"}})
+        _msgs = _llm._build_prompt(["品名", "数量"], _fm.load_mapping())
+        check("E19b 配置的前置提示词生效", _msgs[0]["content"] == "自定义前置提示词TEST", _msgs[0]["content"][:30])
+        req("POST", "/api/config", {"llm": {"system_prompt": ""}})
+        _msgs2 = _llm._build_prompt(["品名"], _fm.load_mapping())
+        check("E19c 留空回退代码最优默认", _msgs2[0]["content"] == _cfgmod.DEFAULT_SYSTEM_PROMPT)
+        req("POST", "/api/config", {"llm": {"system_prompt": _default_prompt}})   # 还原默认
+        # 真起本地大模型跑映射（端点可用时）：输出业务英文字段名新 json
+        if ls.get("available") and first_cid:
+            s, _, mp = req("POST", f"/api/contracts/{first_cid}/llm-map", {}, timeout=180)
+            biz_keys = {"sortOrder", "itemName", "spec", "unit", "quantity", "unitPrice", "amount"}
+            entries_ok = bool(mp.get("entries")) and all(biz_keys & set(e.keys()) for e in mp["entries"])
+            check("E10 真 LLM 映射输出业务字段 json", s == 200 and mp.get("status") == "ok" and entries_ok,
+                  f"status={mp.get('status')} engine={mp.get('engine')} n={mp.get('entryCount')} reason={mp.get('reason')}")
+            s, _, mp2 = req("GET", f"/api/contracts/{first_cid}/mapped")
+            check("E11 mapped 产物可持久化读回", s == 200 and mp2.get("status") == "ok" and mp2.get("entryCount") == mp.get("entryCount"))
+            _, _, fp = req("GET", f"/api/contracts/{first_cid}/result")
+            frep = fp.get("report", {})
+            flds = {f["field"] for r in frep.get("itemComparison", []) for f in r.get("fields", [])}
+            check("E12 校验用映射业务字段匹配后端响应（matchSource=mapped）",
+                  frep.get("matchSource") == "mapped" and frep.get("status") == "matched" and "itemName" in flds,
+                  f"matchSource={frep.get('matchSource')} status={frep.get('status')} fields={sorted(flds)}")
+        else:
+            check("E10 端点不可用时映射优雅跳过", True, "LLM 端点不可用，跳过真 LLM 判据")
         return finish()
     finally:
         try:
             req("POST", "/api/config", {"parse": {"auto_parse_on_upload": False}}, timeout=5)
         except Exception:
             pass
+        if local_llm is not None:
+            local_llm.stop()
         server.terminate()
         try:
             server.wait(timeout=10)
