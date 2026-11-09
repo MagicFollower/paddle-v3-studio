@@ -1,0 +1,158 @@
+{
+  "cases": [
+    {
+      "file": "demo-irregular-kv-003",
+      "no": "HT-2026-003",
+      "layout": "kv",
+      "expectedEntries": 1,
+      "extractedEntries": 1,
+      "tableRoutes": [
+        {
+          "page": 1,
+          "layout": "transposed",
+          "regular": false,
+          "method": "llm-table",
+          "entries": 1
+        }
+      ],
+      "verifyStatus": "matched",
+      "matchSource": "mapped",
+      "pass": true
+    },
+    {
+      "file": "demo-irregular-transposed-002",
+      "no": "HT-2026-002",
+      "layout": "transposed",
+      "expectedEntries": 2,
+      "extractedEntries": 2,
+      "tableRoutes": [
+        {
+          "page": 1,
+          "layout": "transposed",
+          "regular": false,
+          "method": "llm-table",
+          "entries": 2
+        }
+      ],
+      "verifyStatus": "matched",
+      "matchSource": "mapped",
+      "pass": true
+    },
+    {
+      "file": "demo-irregular-merged-001",
+      "no": "HT-2026-001",
+      "layout": "merged",
+      "expectedEntries": 3,
+      "extractedEntries": 3,
+      "tableRoutes": [
+        {
+          "page": 1,
+          "layout": "merged-header",
+          "regular": true,
+          "method": "heuristic",
+          "entries": 3
+        }
+      ],
+      "verifyStatus": "matched",
+      "matchSource": "mapped",
+      "pass": true
+    },
+    {
+      "file": "demo-irregular-kvmulti-002",
+      "no": "HT-2026-002",
+      "layout": "kv-multi",
+      "expectedEntries": 2,
+      "extractedEntries": 2,
+      "tableRoutes": [
+        {
+          "page": 1,
+          "layout": "key-value",
+          "regular": false,
+          "method": "llm-table",
+          "entries": 2
+        }
+      ],
+      "verifyStatus": "matched",
+      "matchSource": "mapped",
+      "pass": true
+    },
+    {
+      "file": "demo-irregular-transposed-001",
+      "no": "HT-2026-001",
+      "layout": "transposed",
+      "expectedEntries": 3,
+      "extractedEntries": 3,
+      "tableRoutes": [
+        {
+          "page": 1,
+          "layout": "transposed",
+          "regular": false,
+          "method": "llm-table",
+          "entries": 3
+        }
+      ],
+      "verifyStatus": "matched",
+      "matchSource": "mapped",
+      "pass": true
+    },
+    {
+      "file": "demo-irregular-rowspan-001",
+      "no": "HT-2026-001",
+      "layout": "rowspan-category",
+      "expectedEntries": 3,
+      "extractedEntries": 3,
+      "tableRoutes": [
+        {
+          "page": 1,
+          "layout": "merged-header",
+          "regular": true,
+          "method": "heuristic",
+          "entries": 3
+        }
+      ],
+      "verifyStatus": "matched",
+      "matchSource": "mapped",
+      "pass": true
+    },
+    {
+      "file": "demo-irregular-nohtable-003",
+      "no": "HT-2026-003",
+      "layout": "contractno-table",
+      "expectedEntries": 1,
+      "extractedEntries": 1,
+      "tableRoutes": [
+        {
+          "page": 1,
+          "layout": "transposed",
+          "regular": false,
+          "method": "llm-table",
+          "entries": 1
+        }
+      ],
+      "verifyStatus": "matched",
+      "matchSource": "mapped",
+      "pass": true
+    },
+    {
+      "file": "demo-irregular-sectioned-002",
+      "no": "HT-2026-002",
+      "layout": "sectioned",
+      "expectedEntries": 2,
+      "extractedEntries": 2,
+      "tableRoutes": [
+        {
+          "page": 1,
+          "layout": "merged-header",
+          "regular": true,
+          "method": "heuristic",
+          "entries": 2
+        }
+      ],
+      "verifyStatus": "matched",
+      "matchSource": "mapped",
+      "pass": true
+    }
+  ],
+  "passed": 8,
+  "total": 8
+}
