@@ -132,6 +132,12 @@ Vue 3 + Element Plus 前端（固定版本 vue 3.5.44 / element-plus 2.14.7 / vi
   独立存于 `data/field_mapping.json`。
 - **触发**：每次合同解析自动跑（端点不可用时优雅跳过并留痕）；也可在合同详情页点「LLM映射」对已解析合同
   单独重跑（`POST /api/contracts/:id/llm-map`）。
+- **极不规范表格兜底（建议 4B）**：合同号+明细同表但行列极不规范（键值对/转置/多行合并表头/分类小计穿插）时，
+  启发式 `table_to_entries` 先做确定性快修（多行表头合并、分类行/小计过滤）；仍解析不出明细的表格交
+  `llm.understand_table` 用端点模型（建议 `Spark-X2.6-4B`）理解结构抽取，返回同形状结果复用 llm_map/verify 链路。
+  结构理解提示词在 `config.llm.table_prompt`（可配置/还原默认）。校验对「未识别到合计行」跳过总额比对（不误判不符）。
+  真实 PDF 验收：`scripts/make_irregular_demo.py --run`（键值/转置/合并三类，全 matched）；
+  形态判据：`scripts/check_table_irregular.py`（6 类，4 类快修达标 + 2 类标记需 LLM，`--selftest` 自证）。
 
 ## 解析前全模型可用性门控
 
@@ -256,6 +262,8 @@ paddle-v3-studio/
 │  ├─ make_fixtures.py      三份样例合同（matched/mismatch/not_found）
 │  ├─ make_llm_demo.py      3 份不同表头合同 PDF 真实调用（--run，全 matched）
 │  ├─ make_crosspage_demo.py 跨页+部分明细存在场景 PDF（HT-2026-001，33 行跨 2 页）
+│  ├─ make_irregular_demo.py 极不规范表格真实 PDF（键值/转置/合并）+ 4B 端到端验收（--run，全 matched）
+│  ├─ check_table_irregular.py 6 类不规则表格形态判据（4 类快修达标，--selftest 自证）
 │  ├─ llm_local.py          测试专用本地 llama 拉起助手（生产由 llm-server.cmd 手动起）
 │  ├─ llm_benchmark.py      真起 LLM 测准确率/耗时 + 跨页端到端（结果落 doc/）
 │  ├─ check_studio.py       端到端判据 78 条（自起后端+本地 LLM，退出码=失败条数）
