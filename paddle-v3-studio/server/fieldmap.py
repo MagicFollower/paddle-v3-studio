@@ -14,20 +14,28 @@ from config import DATA
 MAPPING_PATH = DATA / "field_mapping.json"
 _lock = threading.RLock()
 
-# 默认业务字段：与后端合同查询接口（contract-source GET /api/contracts/{contractNo}）的
-# 响应参数 items[] 字段名逐字对齐（sortOrder/itemName/spec/unit/quantity/unitPrice/amount），
-# 查询参数为 contractNo（映射产物的 contractNo 即用它）。这样 LLM 转换出的新 json 能直接
-# 匹配后端查询/响应参数。别名供 LLM 识别 varied 中文表头参考，也作无 LLM 时的确定性兜底。
+# 默认业务字段：核心 7 字段与后端合同查询接口（contract-source GET /api/contracts/{contractNo}）
+# 响应参数 items[] 逐字对齐（sortOrder/itemName/spec/unit/quantity/unitPrice/amount），查询参数 contractNo。
+# 扩展字段（税率/税额/品牌/产地/制造商/交货期/质保/备注）支持更丰富的合同类型；校验只比对后端有的核心字段，
+# 扩展字段被抽取/映射/展示但不参与后端比对。别名供 LLM 识别 varied 中文表头参考，也作无 LLM 时确定性兜底。
 DEFAULT_MAPPING = {
     "version": 1,
     "fields": [
-        {"field": "sortOrder", "label": "序号", "aliases": ["序号", "编号", "项次", "行号", "序列号", "排序"]},
-        {"field": "itemName", "label": "品名", "aliases": ["名称", "品名", "产品", "货物", "商品", "项目", "物料", "物料名称", "货物名称", "产品名称", "品名规格"]},
-        {"field": "spec", "label": "规格", "aliases": ["规格", "型号", "规格型号", "规格/型号"]},
-        {"field": "unit", "label": "单位", "aliases": ["单位", "计量单位"]},
-        {"field": "quantity", "label": "数量", "aliases": ["数量", "数目", "采购数量", "订单数量"]},
-        {"field": "unitPrice", "label": "单价", "aliases": ["单价", "含税单价", "不含税单价", "单价(元)", "单价（元）"]},
-        {"field": "amount", "label": "金额", "aliases": ["金额", "总价", "小计", "合计金额", "含税金额", "金额(元)", "金额（元）"]},
+        {"field": "sortOrder", "label": "序号", "aliases": ["序号", "编号", "项次", "行号", "序列号", "排序", "项号"]},
+        {"field": "itemName", "label": "品名", "aliases": ["名称", "品名", "产品", "货物", "商品", "项目", "物料", "物料名称", "货物名称", "产品名称", "设备名称", "材料名称", "货品名称", "物品名称", "商品名称", "物料描述", "品名规格"]},
+        {"field": "spec", "label": "规格", "aliases": ["规格", "型号", "规格型号", "规格/型号", "型号规格", "技术规格", "规格描述", "规格尺寸"]},
+        {"field": "unit", "label": "单位", "aliases": ["单位", "计量单位", "单位名称"]},
+        {"field": "quantity", "label": "数量", "aliases": ["数量", "数目", "采购数量", "订单数量", "订购数量", "需求数量", "数量(件)", "数量（件）"]},
+        {"field": "unitPrice", "label": "单价", "aliases": ["单价", "含税单价", "不含税单价", "单价(元)", "单价（元）", "净价", "单价（含税）", "单价(含税)", "不含税净价"]},
+        {"field": "amount", "label": "金额", "aliases": ["金额", "总价", "合计金额", "含税金额", "金额(元)", "金额（元）", "不含税金额", "净价金额", "金额(含税)", "金额（含税）"]},
+        {"field": "taxRate", "label": "税率", "aliases": ["税率", "增值税率", "税点", "税率(%)", "税率（%）"]},
+        {"field": "taxAmount", "label": "税额", "aliases": ["税额", "增值税额", "税金", "税额(元)", "税额（元）"]},
+        {"field": "brand", "label": "品牌", "aliases": ["品牌", "牌子", "商标", "品牌名称"]},
+        {"field": "origin", "label": "产地", "aliases": ["产地", "原产地", "产地/国别", "国别", "生产地"]},
+        {"field": "manufacturer", "label": "制造商", "aliases": ["制造商", "厂家", "生产商", "生产厂家", "制造厂商"]},
+        {"field": "deliveryDate", "label": "交货期", "aliases": ["交货期", "交付日期", "交货日期", "交期", "交付时间"]},
+        {"field": "warranty", "label": "质保期", "aliases": ["质保期", "保修期", "质保", "保修", "质保期限"]},
+        {"field": "remark", "label": "备注", "aliases": ["备注", "说明", "注释", "备注说明"]},
     ],
 }
 
